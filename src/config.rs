@@ -17,6 +17,12 @@ pub struct Job {
     pub steps: Vec<Step>,
     pub env: Option<HashMap<String, String>>,
     pub working_directory: Option<String>,
+    pub strategy: Option<Strategy>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Strategy {
+    pub matrix: HashMap<String, Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

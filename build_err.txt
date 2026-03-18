@@ -1,11 +1,90 @@
    Compiling zenith v0.1.0 (F:\proj_guides\zenith)
-warning: unused imports: `Job` and `Step`
- --> src\runner.rs:1:35
+error: cannot find macro `debug` in this scope
+   --> src\sandbox\mod.rs:354:5
+    |
+354 |     debug!("Lab session '{}' cleaned.", lab_id);
+    |     ^^^^^
+    |
+help: consider importing this macro
+    |
+  1 + use tracing::debug;
+    |
+
+warning: unused import: `Step`
+ --> src\runner.rs:1:40
   |
 1 | use crate::config::{ZenithConfig, Job, Step};
-  |                                   ^^^  ^^^^
+  |                                        ^^^^
   |
   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
 
-warning: `zenith` (bin "zenith") generated 1 warning (run `cargo fix --bin "zenith" -p zenith` to apply 1 suggestion)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.02s
+error[E0061]: this function takes 2 arguments but 1 argument was supplied
+   --> src\runner.rs:108:20
+    |
+108 |         let name = crate::sandbox::provision_lab(&unique_os).await?;
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^------------ argument #2 of type `&str` is missing
+    |
+note: function defined here
+   --> src\sandbox\mod.rs:323:14
+    |
+323 | pub async fn provision_lab(lab_id: &str, base_os: &str) -> Result<()> {
+    |              ^^^^^^^^^^^^^               -------------
+help: provide the argument
+    |
+108 |         let name = crate::sandbox::provision_lab(&unique_os, /* &str */).await?;
+    |                                                            ++++++++++++
+
+error[E0061]: this function takes 5 arguments but 4 arguments were supplied
+   --> src\runner.rs:144:13
+    |
+144 |             crate::sandbox::exec_in_lab(cname, &resolved_run, Some(merged_env), wd).await
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^ -----                 ---------------- argument #3 of type `&str` is missing
+    |                                         |
+    |                                         expected `&str`, found `&()`
+    |
+    = note: expected reference `&str`
+               found reference `&()`
+note: function defined here
+   --> src\sandbox\mod.rs:334:14
+    |
+334 | pub async fn exec_in_lab(
+    |              ^^^^^^^^^^^
+335 |     lab_id: &str, 
+    |     ------------
+336 |     base_os: &str,
+337 |     cmd: &str,
+    |     ---------
+help: provide the argument
+    |
+144 -             crate::sandbox::exec_in_lab(cname, &resolved_run, Some(merged_env), wd).await
+144 +             crate::sandbox::exec_in_lab(/* &str */, &resolved_run, /* &str */, Some(merged_env), wd).await
+    |
+
+error[E0308]: mismatched types
+   --> src\runner.rs:163:38
+    |
+163 |         crate::sandbox::teardown_lab(cname).await.unwrap_or_else(|e| {
+    |         ---------------------------- ^^^^^ expected `&str`, found `&()`
+    |         |
+    |         arguments to this function are incorrect
+    |
+    = note: expected reference `&str`
+               found reference `&()`
+note: function defined here
+   --> src\sandbox\mod.rs:349:14
+    |
+349 | pub async fn teardown_lab(lab_id: &str) -> Result<()> {
+    |              ^^^^^^^^^^^^ ------------
+
+warning: unused variable: `rootfs`
+   --> src\sandbox\mod.rs:251:5
+    |
+251 |     rootfs: &Path,
+    |     ^^^^^^ help: if this is intentional, prefix it with an underscore: `_rootfs`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+Some errors have detailed explanations: E0061, E0308.
+For more information about an error, try `rustc --explain E0061`.
+warning: `zenith` (bin "zenith") generated 2 warnings
+error: could not compile `zenith` (bin "zenith") due to 4 previous errors; 2 warnings emitted

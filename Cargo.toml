@@ -25,6 +25,10 @@ indicatif = "0.17"
 flate2    = "1.0"
 tar       = "0.4"
 
+# Unique session IDs for parallel matrix jobs
+uuid      = { version = "1.4", features = ["v4"] }
+lazy_static = "1.4"
+
 # For Linux: raw syscall bindings (namespaces, chroot, mount, unshare)
 # Only compiled on Linux — zero cost on other platforms
 [target.'cfg(target_os = "linux")'.dependencies]

@@ -1,29 +1,16 @@
 jobs:
-  test_phase_2:
+  matrix_test:
+    strategy:
+      matrix:
+        version: ["1.0", "2.0", "3.0"]
+        env_type: ["dev", "prod"]
     runs-on: alpine
-    env:
-      JOB_VAR: "job_value"
-      OVERRIDE_VAR: "original"
-    working_directory: "subdir"
     steps:
-      - name: Create Subdirectory
-        run: mkdir -p subdir
-        working_directory: "." # Run in root to create the subdir
-
-      - name: Verify Environment and WD
+      - name: Verify Matrix - ${{ matrix.version }} (${{ matrix.env_type }})
         run: |
-          echo "JOB_VAR: $JOB_VAR"
-          echo "STEP_VAR: $STEP_VAR"
-          echo "OVERRIDE_VAR: $OVERRIDE_VAR"
-          pwd
-          ls -F
+          echo "Running version: ${{ matrix.version }}"
+          echo "Env type: ${{ matrix.env_type }}"
+          echo "Job ID: $ZENITH_JOB_ID"
+          sleep 2 # Simulate work to show concurrency
         env:
-          STEP_VAR: "step_value"
-          OVERRIDE_VAR: "overridden"
-
-      - name: Test Failure Handling
-        run: false
-        allow_failure: true
-
-      - name: Final Success Check
-        run: echo "Workflow continued after allowed failure"
+          ZENITH_JOB_ID: "job-${{ matrix.version }}-${{ matrix.env_type }}"

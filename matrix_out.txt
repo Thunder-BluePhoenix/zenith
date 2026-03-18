@@ -1,0 +1,87 @@
+[2m2026-03-18T21:29:48.729748Z[0m [32m INFO[0m [2mzenith[0m[2m:[0m Executing workflow run...
+[2m2026-03-18T21:29:48.730375Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m Preparing job: matrix_test
+[2m2026-03-18T21:29:48.730569Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m Starting job instance: matrix_test-1.0-dev
+[2m2026-03-18T21:29:48.730624Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m Starting job instance: matrix_test-2.0-dev
+[2m2026-03-18T21:29:48.730677Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m Starting job instance: matrix_test-1.0-prod
+[2m2026-03-18T21:29:48.730705Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m Starting job instance: matrix_test-2.0-prod
+[2m2026-03-18T21:29:48.730735Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m [matrix_test-1.0-prod] Provisioning ephemeral sandbox: alpine-99c9dda9e4434293bfb69d7cc14b6a9f
+[2m2026-03-18T21:29:48.730698Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m [matrix_test-2.0-dev] Provisioning ephemeral sandbox: alpine-37cbbb22c4c64b8088d71a07e8854498
+[2m2026-03-18T21:29:48.730649Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m Starting job instance: matrix_test-3.0-dev
+[2m2026-03-18T21:29:48.730722Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m Starting job instance: matrix_test-3.0-prod
+[2m2026-03-18T21:29:48.730767Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m [matrix_test-2.0-prod] Provisioning ephemeral sandbox: alpine-9cca1f5cf79c4f04b03e553f7e73daf4
+[2m2026-03-18T21:29:48.738951Z[0m [32m INFO[0m [2mzenith::sandbox[0m[2m:[0m Rootfs for 'alpine' already cached at "C:\\Users\\rahul\\.zenith\\rootfs\\alpine"
+[2m2026-03-18T21:29:48.730640Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m [matrix_test-1.0-dev] Provisioning ephemeral sandbox: alpine-1e24d0f5d44b4c819027b731e6664c80
+[2m2026-03-18T21:29:48.738947Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m [matrix_test-3.0-prod] Provisioning ephemeral sandbox: alpine-481f917c25e748afb3254d8bdc190e9a
+[2m2026-03-18T21:29:48.738937Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m [matrix_test-3.0-dev] Provisioning ephemeral sandbox: alpine-6cbca8a0f6de4a92ac0384a35c8c6620
+[2m2026-03-18T21:29:48.762339Z[0m [32m INFO[0m [2mzenith::sandbox[0m[2m:[0m Canvas provisioned: lab 'alpine-99c9dda9e4434293bfb69d7cc14b6a9f' (OS: alpine).
+[2m2026-03-18T21:29:48.762415Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m [matrix_test-1.0-prod] Step 1: Verify Matrix - 1.0 (prod)
+[2m2026-03-18T21:29:48.762497Z[0m [33m WARN[0m [2mzenith::sandbox[0m[2m:[0m Full kernel isolation is only available on Linux.
+[2m2026-03-18T21:29:48.762559Z[0m [33m WARN[0m [2mzenith::sandbox[0m[2m:[0m On Windows/macOS, Phase 4 (MicroVM/Hyper-V) provides full isolation.
+[2m2026-03-18T21:29:48.762590Z[0m [32m INFO[0m [2mzenith::sandbox[0m[2m:[0m Running inside workspace path with cleaned environment: echo "Running version: 1.0"
+echo "Env type: prod"
+echo "Job ID: $ZENITH_JOB_ID"
+sleep 2 # Simulate work to show concurrency
+
+\"Running version: 1.0\"
+[2m2026-03-18T21:29:48.788888Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m [matrix_test-1.0-prod] Completed successfully!
+[2m2026-03-18T21:29:48.789047Z[0m [32m INFO[0m [2mzenith::sandbox[0m[2m:[0m Rootfs for 'alpine' already cached at "C:\\Users\\rahul\\.zenith\\rootfs\\alpine"
+[2m2026-03-18T21:29:48.816227Z[0m [32m INFO[0m [2mzenith::sandbox[0m[2m:[0m Canvas provisioned: lab 'alpine-37cbbb22c4c64b8088d71a07e8854498' (OS: alpine).
+[2m2026-03-18T21:29:48.816313Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m [matrix_test-2.0-dev] Step 1: Verify Matrix - 2.0 (dev)
+[2m2026-03-18T21:29:48.816370Z[0m [33m WARN[0m [2mzenith::sandbox[0m[2m:[0m Full kernel isolation is only available on Linux.
+[2m2026-03-18T21:29:48.816390Z[0m [33m WARN[0m [2mzenith::sandbox[0m[2m:[0m On Windows/macOS, Phase 4 (MicroVM/Hyper-V) provides full isolation.
+[2m2026-03-18T21:29:48.816407Z[0m [32m INFO[0m [2mzenith::sandbox[0m[2m:[0m Running inside workspace path with cleaned environment: echo "Running version: 2.0"
+echo "Env type: dev"
+echo "Job ID: $ZENITH_JOB_ID"
+sleep 2 # Simulate work to show concurrency
+
+\"Running version: 2.0\"
+[2m2026-03-18T21:29:48.840749Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m [matrix_test-2.0-dev] Completed successfully!
+[2m2026-03-18T21:29:48.840964Z[0m [32m INFO[0m [2mzenith::sandbox[0m[2m:[0m Rootfs for 'alpine' already cached at "C:\\Users\\rahul\\.zenith\\rootfs\\alpine"
+[2m2026-03-18T21:29:48.864575Z[0m [32m INFO[0m [2mzenith::sandbox[0m[2m:[0m Canvas provisioned: lab 'alpine-9cca1f5cf79c4f04b03e553f7e73daf4' (OS: alpine).
+[2m2026-03-18T21:29:48.864632Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m [matrix_test-2.0-prod] Step 1: Verify Matrix - 2.0 (prod)
+[2m2026-03-18T21:29:48.864679Z[0m [33m WARN[0m [2mzenith::sandbox[0m[2m:[0m Full kernel isolation is only available on Linux.
+[2m2026-03-18T21:29:48.864695Z[0m [33m WARN[0m [2mzenith::sandbox[0m[2m:[0m On Windows/macOS, Phase 4 (MicroVM/Hyper-V) provides full isolation.
+[2m2026-03-18T21:29:48.864709Z[0m [32m INFO[0m [2mzenith::sandbox[0m[2m:[0m Running inside workspace path with cleaned environment: echo "Running version: 2.0"
+echo "Env type: prod"
+echo "Job ID: $ZENITH_JOB_ID"
+sleep 2 # Simulate work to show concurrency
+
+\"Running version: 2.0\"
+[2m2026-03-18T21:29:48.887188Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m [matrix_test-2.0-prod] Completed successfully!
+[2m2026-03-18T21:29:48.887356Z[0m [32m INFO[0m [2mzenith::sandbox[0m[2m:[0m Rootfs for 'alpine' already cached at "C:\\Users\\rahul\\.zenith\\rootfs\\alpine"
+[2m2026-03-18T21:29:48.887515Z[0m [32m INFO[0m [2mzenith::sandbox[0m[2m:[0m Rootfs for 'alpine' already cached at "C:\\Users\\rahul\\.zenith\\rootfs\\alpine"
+[2m2026-03-18T21:29:48.910023Z[0m [32m INFO[0m [2mzenith::sandbox[0m[2m:[0m Canvas provisioned: lab 'alpine-1e24d0f5d44b4c819027b731e6664c80' (OS: alpine).
+[2m2026-03-18T21:29:48.910121Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m [matrix_test-1.0-dev] Step 1: Verify Matrix - 1.0 (dev)
+[2m2026-03-18T21:29:48.910186Z[0m [33m WARN[0m [2mzenith::sandbox[0m[2m:[0m Full kernel isolation is only available on Linux.
+[2m2026-03-18T21:29:48.910210Z[0m [33m WARN[0m [2mzenith::sandbox[0m[2m:[0m On Windows/macOS, Phase 4 (MicroVM/Hyper-V) provides full isolation.
+[2m2026-03-18T21:29:48.910231Z[0m [32m INFO[0m [2mzenith::sandbox[0m[2m:[0m Running inside workspace path with cleaned environment: echo "Running version: 1.0"
+echo "Env type: dev"
+echo "Job ID: $ZENITH_JOB_ID"
+sleep 2 # Simulate work to show concurrency
+
+[2m2026-03-18T21:29:48.910937Z[0m [32m INFO[0m [2mzenith::sandbox[0m[2m:[0m Canvas provisioned: lab 'alpine-481f917c25e748afb3254d8bdc190e9a' (OS: alpine).
+[2m2026-03-18T21:29:48.910984Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m [matrix_test-3.0-prod] Step 1: Verify Matrix - 3.0 (prod)
+[2m2026-03-18T21:29:48.911040Z[0m [33m WARN[0m [2mzenith::sandbox[0m[2m:[0m Full kernel isolation is only available on Linux.
+[2m2026-03-18T21:29:48.911058Z[0m [33m WARN[0m [2mzenith::sandbox[0m[2m:[0m On Windows/macOS, Phase 4 (MicroVM/Hyper-V) provides full isolation.
+[2m2026-03-18T21:29:48.911071Z[0m [32m INFO[0m [2mzenith::sandbox[0m[2m:[0m Running inside workspace path with cleaned environment: echo "Running version: 3.0"
+echo "Env type: prod"
+echo "Job ID: $ZENITH_JOB_ID"
+sleep 2 # Simulate work to show concurrency
+
+\"Running version: 1.0\"
+[2m2026-03-18T21:29:48.932767Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m [matrix_test-1.0-dev] Completed successfully!
+\"Running version: 3.0\"
+[2m2026-03-18T21:29:48.940439Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m [matrix_test-3.0-prod] Completed successfully!
+[2m2026-03-18T21:29:48.940600Z[0m [32m INFO[0m [2mzenith::sandbox[0m[2m:[0m Rootfs for 'alpine' already cached at "C:\\Users\\rahul\\.zenith\\rootfs\\alpine"
+[2m2026-03-18T21:29:48.958913Z[0m [32m INFO[0m [2mzenith::sandbox[0m[2m:[0m Canvas provisioned: lab 'alpine-6cbca8a0f6de4a92ac0384a35c8c6620' (OS: alpine).
+[2m2026-03-18T21:29:48.958994Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m [matrix_test-3.0-dev] Step 1: Verify Matrix - 3.0 (dev)
+[2m2026-03-18T21:29:48.959041Z[0m [33m WARN[0m [2mzenith::sandbox[0m[2m:[0m Full kernel isolation is only available on Linux.
+[2m2026-03-18T21:29:48.959057Z[0m [33m WARN[0m [2mzenith::sandbox[0m[2m:[0m On Windows/macOS, Phase 4 (MicroVM/Hyper-V) provides full isolation.
+[2m2026-03-18T21:29:48.959068Z[0m [32m INFO[0m [2mzenith::sandbox[0m[2m:[0m Running inside workspace path with cleaned environment: echo "Running version: 3.0"
+echo "Env type: dev"
+echo "Job ID: $ZENITH_JOB_ID"
+sleep 2 # Simulate work to show concurrency
+
+\"Running version: 3.0\"
+[2m2026-03-18T21:29:48.976783Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m [matrix_test-3.0-dev] Completed successfully!
+[2m2026-03-18T21:29:48.976872Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m All workflow jobs completed successfully!

@@ -16,8 +16,14 @@ use reqwest::Client;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
-use tracing::{info, warn};
+use tokio::sync::Mutex;
+use tracing::{info, warn, debug};
+
+lazy_static::lazy_static! {
+    static ref DOWNLOAD_MUTEX: Arc<Mutex<()>> = Arc::new(Mutex::new(()));
+}
 
 // Known minimal rootfs image sources for supported OS targets
 struct RootfsSource {
@@ -64,6 +70,7 @@ fn dirs_next_home() -> PathBuf {
 
 /// Download and extract a rootfs image if not already cached.
 pub async fn ensure_rootfs(os: &str) -> Result<PathBuf> {
+    let _lock = DOWNLOAD_MUTEX.lock().await;
     let rootfs = rootfs_dir(os);
 
     // Already cached — skip download
@@ -228,10 +235,21 @@ fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
 }
 
 /// Execute a command inside the sandbox environment.
-/// On Linux: spawns with namespace isolation via platform-specific module.
-/// On Windows/macOS: spawns with a hardened, clean environment.
 pub fn run_in_sandbox(
     rootfs: &Path, 
+    os: &str, 
+    cmd: &str, 
+    env: Option<HashMap<String, String>>,
+    working_directory: Option<String>
+) -> Result<()> {
+    let workspace = rootfs.join("workspace");
+    run_in_sandbox_with_workspace(rootfs, &workspace, os, cmd, env, working_directory)
+}
+
+/// Execute a command inside the sandbox environment with an explicit workspace path.
+pub fn run_in_sandbox_with_workspace(
+    rootfs: &Path,
+    workspace: &Path,
     _os: &str, 
     cmd: &str, 
     env: Option<HashMap<String, String>>,
@@ -239,7 +257,7 @@ pub fn run_in_sandbox(
 ) -> Result<()> {
     #[cfg(target_os = "linux")]
     {
-        linux::run_namespaced(rootfs, cmd, env, working_directory)
+        linux::run_namespaced(rootfs, workspace, cmd, env, working_directory)
     }
 
     #[cfg(not(target_os = "linux"))]
@@ -248,14 +266,14 @@ pub fn run_in_sandbox(
         // with a cleaned environment until Hyper-V/MicroVM lands in Phase 4
         warn!("Full kernel isolation is only available on Linux.");
         warn!("On Windows/macOS, Phase 4 (MicroVM/Hyper-V) provides full isolation.");
-        info!("Running inside rootfs path with cleaned environment: {}", cmd);
-        run_clean_subprocess(rootfs, cmd, env, working_directory)
+        info!("Running inside workspace path with cleaned environment: {}", cmd);
+        run_clean_subprocess_with_workspace(workspace, cmd, env, working_directory)
     }
 }
 
 #[cfg(not(target_os = "linux"))]
-fn run_clean_subprocess(
-    rootfs: &Path, 
+fn run_clean_subprocess_with_workspace(
+    workspace: &Path, 
     cmd: &str, 
     env: Option<HashMap<String, String>>,
     working_directory: Option<String>
@@ -263,7 +281,7 @@ fn run_clean_subprocess(
     use std::process;
     // Run cmd inside the rootfs workspace with a zero-knowledge environment
     // (no host env vars, no host PATH leaks)
-    let mut base_workspace = rootfs.join("workspace");
+    let mut base_workspace = workspace.to_path_buf();
     if let Some(wd) = working_directory {
         base_workspace = base_workspace.join(wd);
     }
@@ -289,38 +307,51 @@ fn run_clean_subprocess(
     Ok(())
 }
 
+#[cfg(not(target_os = "linux"))]
+fn run_clean_subprocess(
+    rootfs: &Path, 
+    cmd: &str, 
+    env: Option<HashMap<String, String>>,
+    working_directory: Option<String>
+) -> Result<()> {
+    let workspace = rootfs.join("workspace");
+    run_clean_subprocess_with_workspace(&workspace, cmd, env, working_directory)
+}
+
 // Async-compatible wrappers used by the workflow runner
 
-pub async fn provision_lab(os: &str) -> Result<String> {
-    ensure_rootfs(os).await?;
-    let workspace = rootfs_dir(os).join("workspace");
+pub async fn provision_lab(lab_id: &str, base_os: &str) -> Result<()> {
+    ensure_rootfs(base_os).await?;
+    let workspace = lab_state_dir(lab_id).join("workspace");
     fs::create_dir_all(&workspace).context("Failed to create lab workspace")?;
     // Copy current project into the sealed canvas workspace
     let current_dir = std::env::current_dir()?;
     copy_dir_all(&current_dir, &workspace)?;
-    info!("Canvas provisioned for OS '{}'.", os);
-    Ok(format!("zenith-lab-{}", os))
+    info!("Canvas provisioned: lab '{}' (OS: {}).", lab_id, base_os);
+    Ok(())
 }
 
 pub async fn exec_in_lab(
     lab_id: &str, 
+    base_os: &str,
     cmd: &str,
     env: Option<HashMap<String, String>>,
     working_directory: Option<String>
 ) -> Result<()> {
-    // lab_id format: "zenith-lab-<os>"
-    let os = lab_id.strip_prefix("zenith-lab-").unwrap_or(lab_id);
-    let rootfs = rootfs_dir(os);
-    run_in_sandbox(&rootfs, os, cmd, env, working_directory)
+    let rootfs = rootfs_dir(base_os);
+    // Use the lab-specific workspace
+    let lab_workspace = lab_state_dir(lab_id).join("workspace");
+    
+    // We need to modify run_in_sandbox to take the workspace path explicitly
+    run_in_sandbox_with_workspace(&rootfs, &lab_workspace, base_os, cmd, env, working_directory)
 }
 
 pub async fn teardown_lab(lab_id: &str) -> Result<()> {
-    let os = lab_id.strip_prefix("zenith-lab-").unwrap_or(lab_id);
-    let workspace = rootfs_dir(os).join("workspace");
-    if workspace.exists() {
-        fs::remove_dir_all(&workspace).context("Failed to clean canvas workspace")?;
+    let state_dir = lab_state_dir(lab_id);
+    if state_dir.exists() {
+        fs::remove_dir_all(&state_dir).context("Failed to clean lab session")?;
     }
-    info!("Canvas workspace cleaned. Base rootfs cached for next run.");
+    debug!("Lab session '{}' cleaned.", lab_id);
     Ok(())
 }
 
@@ -334,6 +365,7 @@ mod linux {
 
     pub fn run_namespaced(
         rootfs: &Path, 
+        workspace: &Path,
         cmd: &str,
         env: Option<HashMap<String, String>>,
         working_directory: Option<String>
@@ -348,7 +380,7 @@ mod linux {
         )
         .context("Failed to create new namespaces")?;
 
-        let mut base_workspace = rootfs.join("workspace");
+        let mut base_workspace = workspace.to_path_buf();
         if let Some(wd) = working_directory {
             base_workspace = base_workspace.join(wd);
         }

@@ -1,0 +1,19 @@
+   Compiling zenith v0.1.0 (F:\proj_guides\zenith)
+warning: unused variable: `rootfs`
+   --> src\sandbox\mod.rs:251:5
+    |
+251 |     rootfs: &Path,
+    |     ^^^^^^ help: if this is intentional, prefix it with an underscore: `_rootfs`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `run_clean_subprocess` is never used
+   --> src\sandbox\mod.rs:311:4
+    |
+311 | fn run_clean_subprocess(
+    |    ^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zenith` (bin "zenith") generated 2 warnings (run `cargo fix --bin "zenith" -p zenith` to apply 1 suggestion)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.32s

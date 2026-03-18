@@ -20,4 +20,6 @@ target/
 # Temporary debug / build log files
 *.log
 build_out.txt
+build_err*.txt
+matrix_out.txt
 err*.txt
