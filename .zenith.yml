@@ -1,0 +1,8 @@
+jobs:
+  default:
+    runs-on: local
+    steps:
+      - name: Greet user
+        run: echo "Hello from Zenith Phase 0!"
+      - name: List directory
+        run: dir

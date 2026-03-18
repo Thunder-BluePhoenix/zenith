@@ -1,0 +1,11 @@
+   Compiling zenith v0.1.0 (F:\proj_guides\zenith)
+warning: unused imports: `Job` and `Step`
+ --> src\runner.rs:1:35
+  |
+1 | use crate::config::{ZenithConfig, Job, Step};
+  |                                   ^^^  ^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zenith` (bin "zenith") generated 1 warning (run `cargo fix --bin "zenith" -p zenith` to apply 1 suggestion)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.02s
