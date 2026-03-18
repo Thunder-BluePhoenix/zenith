@@ -15,12 +15,18 @@ pub struct Job {
     #[serde(rename = "runs-on")]
     pub runs_on: Option<String>,
     pub steps: Vec<Step>,
+    pub env: Option<HashMap<String, String>>,
+    pub working_directory: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Step {
     pub name: Option<String>,
     pub run: String,
+    pub env: Option<HashMap<String, String>>,
+    pub working_directory: Option<String>,
+    #[serde(default)]
+    pub allow_failure: bool,
 }
 
 /// Load and parse .zenith.yml from the current directory

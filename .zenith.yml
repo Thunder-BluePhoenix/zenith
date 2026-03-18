@@ -1,8 +1,29 @@
 jobs:
-  test_sandbox:
+  test_phase_2:
     runs-on: alpine
+    env:
+      JOB_VAR: "job_value"
+      OVERRIDE_VAR: "original"
+    working_directory: "subdir"
     steps:
-      - name: Greet from Sandbox
-        run: echo "Hello from isolated Alpine Linux!"
-      - name: Verify OS
-        run: cat /etc/os-release
+      - name: Create Subdirectory
+        run: mkdir -p subdir
+        working_directory: "." # Run in root to create the subdir
+
+      - name: Verify Environment and WD
+        run: |
+          echo "JOB_VAR: $JOB_VAR"
+          echo "STEP_VAR: $STEP_VAR"
+          echo "OVERRIDE_VAR: $OVERRIDE_VAR"
+          pwd
+          ls -F
+        env:
+          STEP_VAR: "step_value"
+          OVERRIDE_VAR: "overridden"
+
+      - name: Test Failure Handling
+        run: false
+        allow_failure: true
+
+      - name: Final Success Check
+        run: echo "Workflow continued after allowed failure"

@@ -13,6 +13,7 @@ use crate::cli::LabCommands;
 use anyhow::{Context, Result};
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Client;
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tokio::io::AsyncWriteExt;
@@ -174,12 +175,12 @@ pub async fn handle_lab(cmd: LabCommands) -> Result<()> {
 
         LabCommands::Run { os, command } => {
             let rootfs = ensure_rootfs(&os).await?;
-            run_in_sandbox(&rootfs, &os, &command)?;
+            run_in_sandbox(&rootfs, &os, &command, None, None)?;
         }
 
         LabCommands::Shell { os } => {
             let rootfs = ensure_rootfs(&os).await?;
-            run_in_sandbox(&rootfs, &os, "/bin/sh")?;
+            run_in_sandbox(&rootfs, &os, "/bin/sh", None, None)?;
         }
 
         LabCommands::Destroy { os } => {
@@ -229,10 +230,16 @@ fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
 /// Execute a command inside the sandbox environment.
 /// On Linux: spawns with namespace isolation via platform-specific module.
 /// On Windows/macOS: spawns with a hardened, clean environment.
-pub fn run_in_sandbox(rootfs: &Path, _os: &str, cmd: &str) -> Result<()> {
+pub fn run_in_sandbox(
+    rootfs: &Path, 
+    _os: &str, 
+    cmd: &str, 
+    env: Option<HashMap<String, String>>,
+    working_directory: Option<String>
+) -> Result<()> {
     #[cfg(target_os = "linux")]
     {
-        linux::run_namespaced(rootfs, cmd)
+        linux::run_namespaced(rootfs, cmd, env, working_directory)
     }
 
     #[cfg(not(target_os = "linux"))]
@@ -242,22 +249,38 @@ pub fn run_in_sandbox(rootfs: &Path, _os: &str, cmd: &str) -> Result<()> {
         warn!("Full kernel isolation is only available on Linux.");
         warn!("On Windows/macOS, Phase 4 (MicroVM/Hyper-V) provides full isolation.");
         info!("Running inside rootfs path with cleaned environment: {}", cmd);
-        run_clean_subprocess(rootfs, cmd)
+        run_clean_subprocess(rootfs, cmd, env, working_directory)
     }
 }
 
 #[cfg(not(target_os = "linux"))]
-fn run_clean_subprocess(rootfs: &Path, cmd: &str) -> Result<()> {
+fn run_clean_subprocess(
+    rootfs: &Path, 
+    cmd: &str, 
+    env: Option<HashMap<String, String>>,
+    working_directory: Option<String>
+) -> Result<()> {
     use std::process;
     // Run cmd inside the rootfs workspace with a zero-knowledge environment
     // (no host env vars, no host PATH leaks)
-    let workspace = rootfs.join("workspace");
-    let status = process::Command::new("cmd")
-        .args(["/C", cmd])
-        .current_dir(&workspace)
+    let mut base_workspace = rootfs.join("workspace");
+    if let Some(wd) = working_directory {
+        base_workspace = base_workspace.join(wd);
+    }
+    
+    let mut command = process::Command::new("cmd");
+    command.args(["/C", cmd])
+        .current_dir(&base_workspace)
         .env_clear()             // Wipe ALL host environment variables
-        .env("ZENITH_SANDBOX", "1")
-        .status()
+        .env("ZENITH_SANDBOX", "1");
+
+    if let Some(env_vars) = env {
+        for (k, v) in env_vars {
+            command.env(k, v);
+        }
+    }
+
+    let status = command.status()
         .context(format!("Failed to run: {}", cmd))?;
 
     if !status.success() {
@@ -279,11 +302,16 @@ pub async fn provision_lab(os: &str) -> Result<String> {
     Ok(format!("zenith-lab-{}", os))
 }
 
-pub async fn exec_in_lab(lab_id: &str, cmd: &str) -> Result<()> {
+pub async fn exec_in_lab(
+    lab_id: &str, 
+    cmd: &str,
+    env: Option<HashMap<String, String>>,
+    working_directory: Option<String>
+) -> Result<()> {
     // lab_id format: "zenith-lab-<os>"
     let os = lab_id.strip_prefix("zenith-lab-").unwrap_or(lab_id);
     let rootfs = rootfs_dir(os);
-    run_in_sandbox(&rootfs, os, cmd)
+    run_in_sandbox(&rootfs, os, cmd, env, working_directory)
 }
 
 pub async fn teardown_lab(lab_id: &str) -> Result<()> {
@@ -304,7 +332,12 @@ mod linux {
     use std::os::unix::process::CommandExt;
     use std::process;
 
-    pub fn run_namespaced(rootfs: &Path, cmd: &str) -> Result<()> {
+    pub fn run_namespaced(
+        rootfs: &Path, 
+        cmd: &str,
+        env: Option<HashMap<String, String>>,
+        working_directory: Option<String>
+    ) -> Result<()> {
         info!("Launching in isolated Linux namespace (PID + mount + net)...");
 
         // Unshare PID, mount, and network namespaces from the host
@@ -315,16 +348,26 @@ mod linux {
         )
         .context("Failed to create new namespaces")?;
 
-        let workspace = rootfs.join("workspace");
+        let mut base_workspace = rootfs.join("workspace");
+        if let Some(wd) = working_directory {
+            base_workspace = base_workspace.join(wd);
+        }
 
-        let status = process::Command::new("/bin/sh")
-            .args(["-c", cmd])
-            .current_dir(&workspace)
+        let mut command = process::Command::new("/bin/sh");
+        command.args(["-c", cmd])
+            .current_dir(&base_workspace)
             .env_clear()
             .env("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
             .env("HOME", "/root")
-            .env("ZENITH_SANDBOX", "1")
-            .status()
+            .env("ZENITH_SANDBOX", "1");
+
+        if let Some(env_vars) = env {
+            for (k, v) in env_vars {
+                command.env(k, v);
+            }
+        }
+
+        let status = command.status()
             .context(format!("Failed to exec in namespace: {}", cmd))?;
 
         if !status.success() {

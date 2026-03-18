@@ -1,30 +1,38 @@
-use crate::config::ZenithConfig;
+use crate::config::{ZenithConfig, Job, Step};
 use anyhow::{Result, Context};
-use tracing::{info, error, debug};
+use tracing::{info, error, debug, warn};
 use tokio::process::Command;
+use std::collections::HashMap;
 use std::process::Stdio;
 
 /// Execute a local workflow (Phase 1 runner supporting Sandbox isolation)
 pub async fn execute_local(config: ZenithConfig, target_job: Option<String>) -> Result<()> {
     
-    // Resolve which steps to run
-    let (job_name, runs_on, steps) = if let Some(jobs) = config.jobs {
-        let job_name = target_job.unwrap_or_else(|| {
+    // Resolve which job to run
+    let (job_name, job) = if let Some(jobs) = config.jobs {
+        let name = target_job.unwrap_or_else(|| {
             jobs.keys().next().cloned().unwrap_or_else(|| "default".to_string())
         });
         
-        if let Some(job) = jobs.get(&job_name) {
-            info!("Preparing job: {}", job_name);
-            (job_name, job.runs_on.clone().unwrap_or_else(|| "local".into()), job.steps.clone())
-        } else {
-            return Err(anyhow::anyhow!("Job '{}' not found in configuration.", job_name));
-        }
+        let job = jobs.get(&name)
+            .ok_or_else(|| anyhow::anyhow!("Job '{}' not found in configuration.", name))?;
+            
+        info!("Preparing job: {}", name);
+        (name, job.clone())
     } else if let Some(steps) = config.steps {
         info!("Running default steps sequence");
-        ("default".into(), "local".into(), steps)
+        ("default".into(), Job {
+            runs_on: Some("local".into()),
+            steps,
+            env: None,
+            working_directory: None,
+        })
     } else {
         return Err(anyhow::anyhow!("No jobs or steps defined in configuration."));
     };
+
+    let runs_on = job.runs_on.unwrap_or_else(|| "local".into());
+    let steps = job.steps;
 
     if steps.is_empty() {
         info!("No steps to execute.");
@@ -49,16 +57,32 @@ pub async fn execute_local(config: ZenithConfig, target_job: Option<String>) -> 
         info!(">>> [{}] Step {}: {}", job_name, i + 1, step_name);
         debug!("Command: {}", step.run);
         
+        // Merge environment variables: Job level -> Step level
+        let mut merged_env = HashMap::new();
+        if let Some(ref job_env) = job.env {
+            merged_env.extend(job_env.clone());
+        }
+        if let Some(ref step_env) = step.env {
+            merged_env.extend(step_env.clone());
+        }
+
+        // Determine working directory (Step level overrides Job level)
+        let wd = step.working_directory.clone().or_else(|| job.working_directory.clone());
+
         let result = if let Some(ref cname) = container_name {
-            crate::sandbox::exec_in_lab(cname, &step.run).await
+            crate::sandbox::exec_in_lab(cname, &step.run, Some(merged_env), wd).await
         } else {
-            run_shell_command(&step.run).await
+            run_shell_command(&step.run, Some(merged_env), wd).await
         };
 
         if let Err(e) = result {
-            error!("Step failed: {}", e);
-            workflow_success = false;
-            break; // Stop executing subsequent steps on failure
+            if step.allow_failure {
+                warn!("Step failed (allowed): {}", e);
+            } else {
+                error!("Step failed: {}", e);
+                workflow_success = false;
+                break; // Stop executing subsequent steps on failure
+            }
         }
     }
 
@@ -78,7 +102,11 @@ pub async fn execute_local(config: ZenithConfig, target_job: Option<String>) -> 
     }
 }
 
-async fn run_shell_command(cmd: &str) -> Result<()> {
+async fn run_shell_command(
+    cmd: &str, 
+    env: Option<HashMap<String, String>>,
+    working_directory: Option<String>
+) -> Result<()> {
     #[cfg(target_os = "windows")]
     let shell = "cmd";
     #[cfg(target_os = "windows")]
@@ -89,11 +117,22 @@ async fn run_shell_command(cmd: &str) -> Result<()> {
     #[cfg(not(target_os = "windows"))]
     let args = ["-c", cmd];
 
-    let mut child = Command::new(shell)
-        .args(&args)
+    let mut command = Command::new(shell);
+    command.args(&args)
         .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .spawn()
+        .stderr(Stdio::inherit());
+
+    if let Some(wd) = working_directory {
+        command.current_dir(wd);
+    }
+
+    if let Some(env_vars) = env {
+        for (k, v) in env_vars {
+            command.env(k, v);
+        }
+    }
+
+    let mut child = command.spawn()
         .context(format!("Failed to spawn command: {}", cmd))?;
 
     let status = child.wait().await?;
