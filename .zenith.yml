@@ -2,5 +2,5 @@ jobs:
   wasm_test:
     backend: wasm
     steps:
-      - name: Verify Wasm Skeleton
-        run: hello_world.wasm
+      - name: Verify Wasm Skeleton (Modified)
+        run: hello_world.wasm --version

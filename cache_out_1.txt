@@ -1,0 +1,13 @@
+[2m2026-03-18T22:05:27.606149Z[0m [32m INFO[0m [2mzenith[0m[2m:[0m Executing workflow run...
+[2m2026-03-18T22:05:27.606839Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m Preparing job: wasm_test
+[2m2026-03-18T22:05:27.607037Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m Starting job instance: wasm_test
+[2m2026-03-18T22:05:27.607374Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m [wasm_test] Provisioning wasm sandbox: local-eaf97d16532b440d98f97e03ce250002 (Arch: x86_64)
+[2m2026-03-18T22:05:27.607419Z[0m [32m INFO[0m [2mzenith::sandbox::wasm[0m[2m:[0m [Wasm] Initializing WASI runtime for lab: local-eaf97d16532b440d98f97e03ce250002
+[2m2026-03-18T22:05:27.607890Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m [wasm_test] Step 1: Verify Wasm Skeleton
+[2m2026-03-18T22:05:27.608055Z[0m [32m INFO[0m [2mzenith::sandbox::wasm[0m[2m:[0m [Wasm] Executing WASI module: hello_world.wasm
+[2m2026-03-18T22:05:27.608079Z[0m [33m WARN[0m [2mzenith::sandbox::wasm[0m[2m:[0m Wasm native execution (Wasmtime) is currently a skeleton. Phase 5 progress: WASI integration pending.
+[2m2026-03-18T22:05:27.608128Z[0m [33m WARN[0m [2mzenith::sandbox::wasm[0m[2m:[0m WASM module not found: "C:\\Users\\rahul\\.zenith\\labs\\local-eaf97d16532b440d98f97e03ce250002\\workspace\\hello_world.wasm"
+[2m2026-03-18T22:05:27.608411Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m [wasm_test] Step completed successfully
+[2m2026-03-18T22:05:27.608431Z[0m [32m INFO[0m [2mzenith::sandbox::wasm[0m[2m:[0m [Wasm] Tearing down WASI session.
+[2m2026-03-18T22:05:27.608864Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m [wasm_test] Completed successfully!
+[2m2026-03-18T22:05:27.608956Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m All workflow jobs completed successfully!

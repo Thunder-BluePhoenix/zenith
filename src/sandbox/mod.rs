@@ -25,6 +25,7 @@ pub mod backend;
 pub mod container;
 pub mod firecracker;
 pub mod wasm;
+pub mod cache;
 
 use backend::Backend;
 use container::ContainerBackend;

@@ -20,6 +20,7 @@ pub struct Job {
     pub strategy: Option<Strategy>,
     pub backend: Option<String>,
     pub arch: Option<String>,
+    pub cache: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -35,6 +36,7 @@ pub struct Step {
     pub working_directory: Option<String>,
     #[serde(default)]
     pub allow_failure: bool,
+    pub cache: Option<bool>,
 }
 
 /// Load and parse .zenith.yml from the current directory

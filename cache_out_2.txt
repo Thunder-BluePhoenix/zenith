@@ -1,0 +1,9 @@
+[2m2026-03-18T22:05:37.706836Z[0m [32m INFO[0m [2mzenith[0m[2m:[0m Executing workflow run...
+[2m2026-03-18T22:05:37.707407Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m Preparing job: wasm_test
+[2m2026-03-18T22:05:37.707627Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m Starting job instance: wasm_test
+[2m2026-03-18T22:05:37.707888Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m [wasm_test] Provisioning wasm sandbox: local-8bee8b7994b8471e8b6690479382047c (Arch: x86_64)
+[2m2026-03-18T22:05:37.707925Z[0m [32m INFO[0m [2mzenith::sandbox::wasm[0m[2m:[0m [Wasm] Initializing WASI runtime for lab: local-8bee8b7994b8471e8b6690479382047c
+[2m2026-03-18T22:05:37.708547Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m [wasm_test] [CACHED] Step 1: Verify Wasm Skeleton (Skipping execution)
+[2m2026-03-18T22:05:37.709881Z[0m [32m INFO[0m [2mzenith::sandbox::wasm[0m[2m:[0m [Wasm] Tearing down WASI session.
+[2m2026-03-18T22:05:37.710399Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m [wasm_test] Completed successfully!
+[2m2026-03-18T22:05:37.710498Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m All workflow jobs completed successfully!

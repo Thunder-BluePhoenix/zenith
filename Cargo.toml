@@ -29,6 +29,8 @@ tar       = "0.4"
 uuid      = { version = "1.4", features = ["v4"] }
 lazy_static = "1.4"
 async-trait = "0.1"
+sha2        = "0.10"
+hex         = "0.4"
 
 # For Linux: raw syscall bindings (namespaces, chroot, mount, unshare)
 # Only compiled on Linux — zero cost on other platforms

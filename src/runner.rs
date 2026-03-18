@@ -31,6 +31,7 @@ pub async fn execute_local(config: ZenithConfig, target_job: Option<String>) -> 
             strategy: None,
             backend: None,
             arch: None,
+            cache: None,
         })
     } else {
         return Err(anyhow::anyhow!("No jobs or steps defined in configuration."));
@@ -112,6 +113,9 @@ async fn execute_single_job(
 
     let is_sandboxed = (runs_on != "local" && runs_on != "host") || backend.name() != "container";
 
+    // Phase 6: Initialize Cache Manager
+    let cache_manager = crate::sandbox::cache::CacheManager::new().ok();
+
     // Phase 1/4/5 Sandbox Provisioning using the backend abstraction
     let container_id = if is_sandboxed {
         let unique_id = format!("{}-{}", runs_on, uuid::Uuid::new_v4().simple());
@@ -128,11 +132,6 @@ async fn execute_single_job(
         let step_name = step.name.as_deref().unwrap_or("Unnamed Step");
         let resolved_name = resolve_placeholders(step_name, &matrix);
         
-        info!("[{}] Step {}: {}", instance_name, i + 1, resolved_name);
-
-        // Resolve command placeholders
-        let resolved_run = resolve_placeholders(&step.run, &matrix);
-        
         // Merge environment variables: Job level -> Step level
         let mut merged_env = HashMap::new();
         if let Some(ref job_env) = job.env {
@@ -145,6 +144,26 @@ async fn execute_single_job(
                 merged_env.insert(k.clone(), resolve_placeholders(v, &matrix));
             }
         }
+
+        // Phase 6: Performance Caching check
+        let step_cache_enabled = step.cache.unwrap_or(job.cache.unwrap_or(true));
+        let step_hash = if step_cache_enabled {
+            cache_manager.as_ref().map(|cm| cm.compute_step_hash(&runs_on, &arch, step, &merged_env))
+        } else {
+            None
+        };
+
+        if let Some(ref hash) = step_hash {
+            if cache_manager.as_ref().map(|cm| cm.is_cached(hash)).unwrap_or(false) {
+                info!("[{}] [CACHED] Step {}: {} (Skipping execution)", instance_name, i + 1, resolved_name);
+                continue;
+            }
+        }
+
+        info!("[{}] Step {}: {}", instance_name, i + 1, resolved_name);
+
+        // Resolve command placeholders
+        let resolved_run = resolve_placeholders(&step.run, &matrix);
 
         // Determine working directory (Step level overrides Job level)
         let wd = step.working_directory.clone()
@@ -165,6 +184,14 @@ async fn execute_single_job(
                 success = false;
                 break;
             }
+        } else {
+            // Phase 6: Update cache on success
+            if let Some(ref hash) = step_hash {
+                if let Some(ref cm) = cache_manager {
+                    let _ = cm.update_cache(hash);
+                }
+            }
+            info!("[{}] Step completed successfully", instance_name);
         }
     }
 
