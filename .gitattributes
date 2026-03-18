@@ -1,0 +1,22 @@
+# Normalize line endings: always store LF in repo, checkout as native on each OS
+* text=auto
+
+# Force LF for Rust source and scripts (consistent across Linux CI runners)
+*.rs    text eol=lf
+*.toml  text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.md    text eol=lf
+*.sh    text eol=lf
+
+# Windows-specific files keep CRLF
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
+# Binary files — no line-ending conversion
+*.png   binary
+*.jpg   binary
+*.gz    binary
+*.tar   binary
+*.exe   binary
+*.pdb   binary

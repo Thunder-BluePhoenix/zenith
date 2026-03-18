@@ -1,2 +1,0 @@
-   Compiling zenith v0.1.0 (F:\proj_guides\zenith)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.68s
