@@ -1,8 +1,8 @@
 jobs:
-  default:
-    runs-on: local
+  test_sandbox:
+    runs-on: alpine
     steps:
-      - name: Greet user
-        run: echo "Hello from Zenith Phase 0!"
-      - name: List directory
-        run: dir
+      - name: Greet from Sandbox
+        run: echo "Hello from isolated Alpine Linux!"
+      - name: Verify OS
+        run: cat /etc/os-release

@@ -6,6 +6,7 @@ use tracing_subscriber::FmtSubscriber;
 mod cli;
 mod config;
 mod runner;
+mod sandbox;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -26,9 +27,8 @@ async fn main() -> Result<()> {
             let cfg = config::load_config(".zenith.yml")?;
             runner::execute_local(cfg, job).await?;
         }
-        cli::Commands::Lab { action } => {
-            info!("Lab action: {:?}", action);
-            println!("Lab environment manager is not yet implemented (Phase 1).");
+        cli::Commands::Lab(lab_cmd) => {
+            sandbox::handle_lab(lab_cmd).await?;
         }
         cli::Commands::Matrix { action } => {
             info!("Matrix action: {:?}", action);
