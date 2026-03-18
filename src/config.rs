@@ -19,6 +19,7 @@ pub struct Job {
     pub working_directory: Option<String>,
     pub strategy: Option<Strategy>,
     pub backend: Option<String>,
+    pub arch: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

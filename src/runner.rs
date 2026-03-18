@@ -30,6 +30,7 @@ pub async fn execute_local(config: ZenithConfig, target_job: Option<String>) -> 
             working_directory: None,
             strategy: None,
             backend: None,
+            arch: None,
         })
     } else {
         return Err(anyhow::anyhow!("No jobs or steps defined in configuration."));
@@ -100,17 +101,22 @@ async fn execute_single_job(
         &matrix
     );
 
+    // Resolve target architecture (default to host arch)
+    let arch = job.arch.as_deref()
+        .map(|a| resolve_placeholders(a, &matrix))
+        .unwrap_or_else(|| std::env::consts::ARCH.to_string());
+
     // Get the requested backend (default to container)
     let backend_name = job.backend.as_deref().unwrap_or("container");
     let backend = crate::sandbox::get_backend(backend_name);
 
-    let is_sandboxed = runs_on != "local" && runs_on != "host";
+    let is_sandboxed = (runs_on != "local" && runs_on != "host") || backend.name() != "container";
 
-    // Phase 1/4 Sandbox Provisioning using the backend abstraction
+    // Phase 1/4/5 Sandbox Provisioning using the backend abstraction
     let container_id = if is_sandboxed {
         let unique_id = format!("{}-{}", runs_on, uuid::Uuid::new_v4().simple());
-        info!("[{}] Provisioning {} sandbox: {}", instance_name, backend.name(), unique_id);
-        backend.provision(&unique_id, &runs_on).await?;
+        info!("[{}] Provisioning {} sandbox: {} (Arch: {})", instance_name, backend.name(), unique_id, arch);
+        backend.provision(&unique_id, &runs_on, &arch).await?;
         Some(unique_id)
     } else {
         None
@@ -146,7 +152,7 @@ async fn execute_single_job(
             .map(|d| resolve_placeholders(&d, &matrix));
 
         let result = if let Some(ref cid) = container_id {
-            backend.execute(cid, &runs_on, &resolved_run, Some(merged_env), wd).await
+            backend.execute(cid, &runs_on, &arch, &resolved_run, Some(merged_env), wd).await
         } else {
             run_shell_command(&resolved_run, Some(merged_env), wd).await
         };

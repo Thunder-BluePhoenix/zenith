@@ -8,13 +8,14 @@ pub trait Backend: Send + Sync {
     fn name(&self) -> &str;
 
     /// Provision a unique lab workspace/session
-    async fn provision(&self, lab_id: &str, base_os: &str) -> Result<()>;
+    async fn provision(&self, lab_id: &str, base_os: &str, target_arch: &str) -> Result<()>;
 
     /// Execute a command within the lab session
     async fn execute(
         &self, 
         lab_id: &str, 
         base_os: &str,
+        target_arch: &str,
         cmd: &str, 
         env: Option<HashMap<String, String>>,
         working_directory: Option<String>

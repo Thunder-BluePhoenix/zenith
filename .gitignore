@@ -23,4 +23,6 @@ build_out.txt
 build_err*.txt
 matrix_out.txt
 firecracker_out.txt
+phase_5_out.txt
+wasm_out*.txt
 err*.txt

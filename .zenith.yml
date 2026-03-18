@@ -1,7 +1,6 @@
 jobs:
-  firecracker_test:
-    runs-on: alpine
-    backend: firecracker
+  wasm_test:
+    backend: wasm
     steps:
-      - name: Verify MicroVM Skeleton
-        run: echo "This should fail on Windows but show Firecracker initialization logs."
+      - name: Verify Wasm Skeleton
+        run: hello_world.wasm

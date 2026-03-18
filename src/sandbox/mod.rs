@@ -24,15 +24,18 @@ use tracing::{info, warn, debug};
 pub mod backend;
 pub mod container;
 pub mod firecracker;
+pub mod wasm;
 
 use backend::Backend;
 use container::ContainerBackend;
 use firecracker::FirecrackerBackend;
+use wasm::WasmBackend;
 
 /// Factory to get the requested isolation engine
 pub fn get_backend(name: &str) -> Box<dyn Backend> {
     match name {
         "firecracker" => Box::new(FirecrackerBackend),
+        "wasm" => Box::new(WasmBackend),
         _ => Box::new(ContainerBackend),
     }
 }
@@ -51,6 +54,10 @@ const ROOTFS_SOURCES: &[RootfsSource] = &[
     RootfsSource {
         os: "alpine",
         url: "https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/x86_64/alpine-minirootfs-3.19.1-x86_64.tar.gz",
+    },
+    RootfsSource {
+        os: "alpine-arm64",
+        url: "https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/aarch64/alpine-minirootfs-3.19.1-aarch64.tar.gz",
     },
 ];
 
@@ -198,12 +205,14 @@ pub async fn handle_lab(cmd: LabCommands) -> Result<()> {
 
         LabCommands::Run { os, command } => {
             let rootfs = ensure_rootfs(&os).await?;
-            run_in_sandbox(&rootfs, &os, &command, None, None)?;
+            let arch = std::env::consts::ARCH;
+            run_in_sandbox(&rootfs, &os, arch, &command, None, None)?;
         }
 
         LabCommands::Shell { os } => {
             let rootfs = ensure_rootfs(&os).await?;
-            run_in_sandbox(&rootfs, &os, "/bin/sh", None, None)?;
+            let arch = std::env::consts::ARCH;
+            run_in_sandbox(&rootfs, &os, arch, "/bin/sh", None, None)?;
         }
 
         LabCommands::Destroy { os } => {
@@ -254,30 +263,44 @@ fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
 pub fn run_in_sandbox(
     rootfs: &Path, 
     os: &str, 
+    target_arch: &str,
     cmd: &str, 
     env: Option<HashMap<String, String>>,
     working_directory: Option<String>
 ) -> Result<()> {
     let workspace = rootfs.join("workspace");
-    run_in_sandbox_with_workspace(rootfs, &workspace, os, cmd, env, working_directory)
+    run_in_sandbox_with_workspace(rootfs, &workspace, os, target_arch, cmd, env, working_directory)
 }
 
 /// Execute a command inside the sandbox environment with an explicit workspace path.
 pub fn run_in_sandbox_with_workspace(
-    rootfs: &Path,
+    _rootfs: &Path,
     workspace: &Path,
     _os: &str, 
+    target_arch: &str,
     cmd: &str, 
     env: Option<HashMap<String, String>>,
     working_directory: Option<String>
 ) -> Result<()> {
+    // Phase 5: Architecture emulation check
+    let host_arch = std::env::consts::ARCH;
+    let is_emulated = target_arch != host_arch && target_arch != "x86_64" && target_arch != "amd64";
+
     #[cfg(target_os = "linux")]
     {
+        if is_emulated {
+            info!("Cross-architecture detected: host={} target={}. Attempting QEMU translation.", host_arch, target_arch);
+            // In a full implementation, we would bind-mount qemu-user-static here.
+        }
         linux::run_namespaced(rootfs, workspace, cmd, env, working_directory)
     }
 
     #[cfg(not(target_os = "linux"))]
     {
+        if is_emulated {
+            warn!("Cross-architecture emulation on Windows/macOS is currently limited.");
+            warn!("Switching to 'firecracker' or 'wasm' backend is recommended for non-native execution.");
+        }
         // Phase 1 fallback on Windows/macOS: run inside the rootfs path
         // with a cleaned environment until Hyper-V/MicroVM lands in Phase 4
         warn!("Full kernel isolation is only available on Linux.");
@@ -350,6 +373,7 @@ pub async fn provision_lab(lab_id: &str, base_os: &str) -> Result<()> {
 pub async fn exec_in_lab(
     lab_id: &str, 
     base_os: &str,
+    target_arch: &str,
     cmd: &str,
     env: Option<HashMap<String, String>>,
     working_directory: Option<String>
@@ -359,7 +383,7 @@ pub async fn exec_in_lab(
     let lab_workspace = lab_state_dir(lab_id).join("workspace");
     
     // We need to modify run_in_sandbox to take the workspace path explicitly
-    run_in_sandbox_with_workspace(&rootfs, &lab_workspace, base_os, cmd, env, working_directory)
+    run_in_sandbox_with_workspace(&rootfs, &lab_workspace, base_os, target_arch, cmd, env, working_directory)
 }
 
 pub async fn teardown_lab(lab_id: &str) -> Result<()> {

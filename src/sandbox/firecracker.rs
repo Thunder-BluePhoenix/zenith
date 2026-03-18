@@ -12,9 +12,9 @@ impl Backend for FirecrackerBackend {
         "firecracker"
     }
 
-    async fn provision(&self, lab_id: &str, base_os: &str) -> Result<()> {
-        info!("[Firecracker] Initializing MicroVM for lab: {} (base: {})", lab_id, base_os);
-        warn!("Firecracker backend is currently a skeleton. Phase 4 progress: kernel/kvm integration pending.");
+    async fn provision(&self, lab_id: &str, base_os: &str, target_arch: &str) -> Result<()> {
+        info!("[Firecracker] Initializing MicroVM for lab: {} (OS: {}, Arch: {})", lab_id, base_os, target_arch);
+        warn!("Firecracker backend is currently a skeleton. Phase 4/5 progress: kernel/kvm integration pending.");
         // For now, this just validates the base OS and does nothing
         super::ensure_rootfs(base_os).await?;
         Ok(())
@@ -24,6 +24,7 @@ impl Backend for FirecrackerBackend {
         &self, 
         _lab_id: &str, 
         _base_os: &str,
+        _target_arch: &str,
         _cmd: &str, 
         _env: Option<HashMap<String, String>>,
         _working_directory: Option<String>
