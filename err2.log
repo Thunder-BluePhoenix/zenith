@@ -1,0 +1,27 @@
+    Checking zenith v0.1.0 (F:\proj_guides\zenith)
+warning: unused imports: `Job` and `Step`
+ --> src\runner.rs:1:35
+  |
+1 | use crate::config::{ZenithConfig, Job, Step};
+  |                                   ^^^  ^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+error[E0716]: temporary value dropped while borrowed
+  --> src\sandbox\mod.rs:30:24
+   |
+30 |                 "-v", &format!("{}:/workspace", current_dir),
+   |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ creates a temporary value which is freed while still in use
+...
+33 |             ];
+   |              - temporary value is freed at the end of this statement
+34 |             
+35 |             run_docker_command(&args)
+   |                                ----- borrow later used here
+   |
+   = note: consider using a `let` binding to create a longer lived value
+   = note: this error originates in the macro `format` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+For more information about this error, try `rustc --explain E0716`.
+warning: `zenith` (bin "zenith") generated 1 warning
+error: could not compile `zenith` (bin "zenith") due to 1 previous error; 1 warning emitted
