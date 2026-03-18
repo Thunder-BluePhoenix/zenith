@@ -18,6 +18,7 @@ pub struct Job {
     pub env: Option<HashMap<String, String>>,
     pub working_directory: Option<String>,
     pub strategy: Option<Strategy>,
+    pub backend: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

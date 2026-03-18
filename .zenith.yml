@@ -1,16 +1,7 @@
 jobs:
-  matrix_test:
-    strategy:
-      matrix:
-        version: ["1.0", "2.0", "3.0"]
-        env_type: ["dev", "prod"]
+  firecracker_test:
     runs-on: alpine
+    backend: firecracker
     steps:
-      - name: Verify Matrix - ${{ matrix.version }} (${{ matrix.env_type }})
-        run: |
-          echo "Running version: ${{ matrix.version }}"
-          echo "Env type: ${{ matrix.env_type }}"
-          echo "Job ID: $ZENITH_JOB_ID"
-          sleep 2 # Simulate work to show concurrency
-        env:
-          ZENITH_JOB_ID: "job-${{ matrix.version }}-${{ matrix.env_type }}"
+      - name: Verify MicroVM Skeleton
+        run: echo "This should fail on Windows but show Firecracker initialization logs."

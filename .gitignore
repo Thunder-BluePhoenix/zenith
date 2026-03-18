@@ -22,4 +22,5 @@ target/
 build_out.txt
 build_err*.txt
 matrix_out.txt
+firecracker_out.txt
 err*.txt

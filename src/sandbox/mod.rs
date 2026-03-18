@@ -21,6 +21,22 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use tracing::{info, warn, debug};
 
+pub mod backend;
+pub mod container;
+pub mod firecracker;
+
+use backend::Backend;
+use container::ContainerBackend;
+use firecracker::FirecrackerBackend;
+
+/// Factory to get the requested isolation engine
+pub fn get_backend(name: &str) -> Box<dyn Backend> {
+    match name {
+        "firecracker" => Box::new(FirecrackerBackend),
+        _ => Box::new(ContainerBackend),
+    }
+}
+
 lazy_static::lazy_static! {
     static ref DOWNLOAD_MUTEX: Arc<Mutex<()>> = Arc::new(Mutex::new(()));
 }
@@ -364,7 +380,7 @@ mod linux {
     use std::process;
 
     pub fn run_namespaced(
-        rootfs: &Path, 
+        _rootfs: &Path, 
         workspace: &Path,
         cmd: &str,
         env: Option<HashMap<String, String>>,

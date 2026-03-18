@@ -1,0 +1,13 @@
+[2m2026-03-18T21:40:25.409111Z[0m [32m INFO[0m [2mzenith[0m[2m:[0m Executing workflow run...
+[2m2026-03-18T21:40:25.409692Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m Preparing job: firecracker_test
+[2m2026-03-18T21:40:25.409893Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m Starting job instance: firecracker_test
+[2m2026-03-18T21:40:25.409962Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m [firecracker_test] Provisioning firecracker sandbox: alpine-c00fb2fcc26b4ccdb9c2e9eb02d78f8e
+[2m2026-03-18T21:40:25.409997Z[0m [32m INFO[0m [2mzenith::sandbox::firecracker[0m[2m:[0m [Firecracker] Initializing MicroVM for lab: alpine-c00fb2fcc26b4ccdb9c2e9eb02d78f8e (base: alpine)
+[2m2026-03-18T21:40:25.410022Z[0m [33m WARN[0m [2mzenith::sandbox::firecracker[0m[2m:[0m Firecracker backend is currently a skeleton. Phase 4 progress: kernel/kvm integration pending.
+[2m2026-03-18T21:40:25.411365Z[0m [32m INFO[0m [2mzenith::sandbox[0m[2m:[0m Rootfs for 'alpine' already cached at "C:\\Users\\rahul\\.zenith\\rootfs\\alpine"
+[2m2026-03-18T21:40:25.411405Z[0m [32m INFO[0m [2mzenith::runner[0m[2m:[0m [firecracker_test] Step 1: Verify MicroVM Skeleton
+[2m2026-03-18T21:40:25.411423Z[0m [33m WARN[0m [2mzenith::sandbox::firecracker[0m[2m:[0m Firecracker execution is not yet implemented on this platform.
+[2m2026-03-18T21:40:25.411452Z[0m [31mERROR[0m [2mzenith::runner[0m[2m:[0m [firecracker_test] Step failed: Firecracker requires a Linux host with KVM enabled. Falling back to container backend is recommended on Windows.
+[2m2026-03-18T21:40:25.411475Z[0m [32m INFO[0m [2mzenith::sandbox::firecracker[0m[2m:[0m [Firecracker] Tearing down MicroVM session.
+[2m2026-03-18T21:40:25.411558Z[0m [31mERROR[0m [2mzenith::runner[0m[2m:[0m Parallel job failed: [firecracker_test] Failed.
+Error: Some workflow jobs failed.

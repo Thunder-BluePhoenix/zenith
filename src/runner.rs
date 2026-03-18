@@ -29,6 +29,7 @@ pub async fn execute_local(config: ZenithConfig, target_job: Option<String>) -> 
             env: None,
             working_directory: None,
             strategy: None,
+            backend: None,
         })
     } else {
         return Err(anyhow::anyhow!("No jobs or steps defined in configuration."));
@@ -99,14 +100,18 @@ async fn execute_single_job(
         &matrix
     );
 
+    // Get the requested backend (default to container)
+    let backend_name = job.backend.as_deref().unwrap_or("container");
+    let backend = crate::sandbox::get_backend(backend_name);
+
     let is_sandboxed = runs_on != "local" && runs_on != "host";
 
-    // Phase 1 Sandbox Provisioning
+    // Phase 1/4 Sandbox Provisioning using the backend abstraction
     let container_id = if is_sandboxed {
-        let unique_os = format!("{}-{}", runs_on, uuid::Uuid::new_v4().simple());
-        info!("[{}] Provisioning ephemeral sandbox: {}", instance_name, unique_os);
-        crate::sandbox::provision_lab(&unique_os, &runs_on).await?;
-        Some(unique_os)
+        let unique_id = format!("{}-{}", runs_on, uuid::Uuid::new_v4().simple());
+        info!("[{}] Provisioning {} sandbox: {}", instance_name, backend.name(), unique_id);
+        backend.provision(&unique_id, &runs_on).await?;
+        Some(unique_id)
     } else {
         None
     };
@@ -140,8 +145,8 @@ async fn execute_single_job(
             .or_else(|| job.working_directory.clone())
             .map(|d| resolve_placeholders(&d, &matrix));
 
-        let result = if let Some(ref cname) = container_id {
-            crate::sandbox::exec_in_lab(cname, &runs_on, &resolved_run, Some(merged_env), wd).await
+        let result = if let Some(ref cid) = container_id {
+            backend.execute(cid, &runs_on, &resolved_run, Some(merged_env), wd).await
         } else {
             run_shell_command(&resolved_run, Some(merged_env), wd).await
         };
@@ -157,10 +162,10 @@ async fn execute_single_job(
         }
     }
 
-    // Phase 1 Sandbox Teardown
-    if let Some(ref cname) = container_id {
+    // Phase 1/4 Sandbox Teardown
+    if let Some(ref cid) = container_id {
         debug!("[{}] Tearing down sandbox...", instance_name);
-        crate::sandbox::teardown_lab(cname).await.unwrap_or_else(|e| {
+        backend.teardown(cid).await.unwrap_or_else(|e| {
             error!("[{}] Failed to tear down lab: {}", instance_name, e);
         });
     }
