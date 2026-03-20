@@ -17,8 +17,17 @@ impl NodeToolchain {
 
 impl NodeToolchain {
     pub async fn ensure_installed(&self) -> Result<PathBuf> {
-        let bin_dir = toolchain_dir("node", &self.version).join("bin");
-        let node_bin = bin_dir.join("node");
+        let install_dir = toolchain_dir("node", &self.version);
+        // Windows: node.exe is in the root; Unix: bin/node
+        let (bin_dir, node_bin) = if cfg!(target_os = "windows") {
+            let d = install_dir.clone();
+            let b = d.join("node.exe");
+            (d, b)
+        } else {
+            let d = install_dir.join("bin");
+            let b = d.join("node");
+            (d, b)
+        };
 
         if node_bin.exists() {
             return Ok(bin_dir);
@@ -27,7 +36,6 @@ impl NodeToolchain {
         info!("Zenith is installing Node.js {} ...", self.version);
 
         let url = node_download_url(&self.version);
-        let install_dir = toolchain_dir("node", &self.version);
         std::fs::create_dir_all(&install_dir)?;
 
         // Download + extract

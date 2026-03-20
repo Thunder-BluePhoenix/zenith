@@ -1,4 +1,4 @@
-use crate::config::{ZenithConfig, Job};
+use crate::config::{ZenithConfig, Job, EnvConfig};
 use anyhow::{Result, Context};
 use tracing::{info, error, debug, warn};
 use tokio::process::Command;
@@ -10,7 +10,9 @@ use tokio::task::JoinSet;
 /// Execute a local workflow.
 /// `force` — when true, bypass all cache checks (used by `zenith build --no-cache`)
 pub async fn execute_local(config: ZenithConfig, target_job: Option<String>, force: bool) -> Result<()> {
-    
+    // Capture top-level env block before consuming config fields
+    let global_env = config.env.clone();
+
     // Resolve which job to run
     let (job_name, base_job) = if let Some(jobs) = config.jobs {
         let name = target_job.unwrap_or_else(|| {
@@ -33,6 +35,7 @@ pub async fn execute_local(config: ZenithConfig, target_job: Option<String>, for
             backend: None,
             arch: None,
             cache: None,
+            toolchain: None,
         })
     } else {
         return Err(anyhow::anyhow!("No jobs or steps defined in configuration."));
@@ -52,8 +55,9 @@ pub async fn execute_local(config: ZenithConfig, target_job: Option<String>, for
     for matrix in matrix_combinations {
         let job = base_job.clone();
         let name = job_name.clone();
+        let genv = global_env.clone();
         set.spawn(async move {
-            execute_single_job(&name, &job, matrix, force).await
+            execute_single_job(&name, &job, matrix, force, genv.as_ref()).await
         });
     }
 
@@ -86,6 +90,7 @@ async fn execute_single_job(
     job: &Job,
     matrix: HashMap<String, String>,
     force: bool,
+    global_env: Option<&EnvConfig>,
 ) -> Result<()> {
     // Generate a specific name for this matrix instance
     let instance_name = if matrix.is_empty() {
@@ -120,9 +125,14 @@ async fn execute_single_job(
     // Workspace path for artifact restore/save (local execution path)
     let workspace_path = std::env::current_dir().ok();
 
-    // Phase 7: Resolve toolchain env (Node, Python, Go, Rust versions from config)
-    // tool_env contains a modified PATH prepended with Zenith-managed toolchain bins
-    let tool_env = crate::toolchain::resolve_toolchain_env(job).await;
+    // Phase 7: Resolve toolchain env — global env: block merged with per-job toolchain: override.
+    // Per-job toolchain takes precedence; global provides defaults.
+    let effective_tc = job.toolchain.as_ref().or(global_env);
+    let tool_env = if let Some(tc) = effective_tc {
+        crate::toolchain::resolve_toolchain_env_from_config(tc).await
+    } else {
+        std::collections::HashMap::new()
+    };
 
     // Phase 1/4/5 Sandbox Provisioning using the backend abstraction
     let container_id = if is_sandboxed {

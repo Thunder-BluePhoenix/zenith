@@ -70,7 +70,7 @@ const ROOTFS_SOURCES: &[RootfsSource] = &[
     },
 ];
 
-fn zenith_home() -> PathBuf {
+pub fn zenith_home() -> PathBuf {
     let home = dirs_next_home();
     home.join(".zenith")
 }
