@@ -1,6 +1,6 @@
 # Zenith — Build Progress Tracker
 
-Last updated: 2026-03-20
+Last updated: 2026-03-21
 
 ---
 
@@ -30,7 +30,7 @@ Phase 7   [##########] 100%  Env & Package System               COMPLETE
 Phase 8   [##########] 100%  Plugin System                      COMPLETE
 Phase 9   [##########] 100%  Remote Runner                      COMPLETE
 Phase 10  [##########] 100%  Cloud Runtime                      COMPLETE
-Phase 11  [----------]   0%  GUI & IDE Integration              NOT STARTED
+Phase 11  [##########] 100%  GUI & IDE Integration              COMPLETE
 Phase 12  [----------]   0%  Low-Level System Optimization      NOT STARTED
 Phase 13  [----------]   0%  Reproducibility Engine             NOT STARTED
 Phase 14  [----------]   0%  Full Developer Platform            NOT STARTED
@@ -269,25 +269,57 @@ Phase 15  [----------]   0%  OS-Level Runtime (Ultimate)        NOT STARTED
 
 ---
 
-## Phases 11–15 — Platform & OS-Level Runtime
+---
+
+## Phase 11 — GUI & IDE Integration
+
+**Status:** COMPLETE
+
+| Task | Status | File |
+|---|---|---|
+| `RunLogger` — persist run history to `~/.zenith/logs/<run-id>/` | DONE | `src/ui/history.rs` |
+| `RunSummary` / `RunOutcome` / `StepEvent` / `StepStatus` types | DONE | `src/ui/history.rs` |
+| `list_runs()` / `get_steps()` / `get_run()` reader API | DONE | `src/ui/history.rs` |
+| Runner wired to write history on every `zenith run` | DONE | `src/runner.rs` — `RunLogger` integrated |
+| Shell command output captured + stored as log lines | DONE | `src/runner.rs` — `run_shell_command()` returns lines |
+| Axum HTTP server on port 7622 | DONE | `src/ui/server.rs` |
+| REST endpoints: `/api/runs`, `/api/runs/:id`, `/api/runs/:id/steps` | DONE | `src/ui/api.rs` |
+| SSE endpoint: `/api/runs/:id/stream` (replays history) | DONE | `src/ui/api.rs` |
+| `/api/cache` and `/api/labs` endpoints | DONE | `src/ui/api.rs` |
+| Embedded dark-theme single-page dashboard (HTML/JS) | DONE | `src/ui/dashboard.html` |
+| Dashboard: run list + step detail, auto-refresh every 10 s | DONE | `src/ui/dashboard.html` |
+| Dashboard: collapsible step log lines | DONE | `src/ui/dashboard.html` |
+| `zenith ui [--port N]` CLI command | DONE | `src/cli.rs`, `src/main.rs` |
+| ratatui two-pane TUI — run list (left) + steps (right) | DONE | `src/tui/mod.rs` |
+| TUI: color-coded status dots + step tag badges | DONE | `src/tui/mod.rs` |
+| TUI: expandable log pane (Enter), Tab focus switch, r refresh, q quit | DONE | `src/tui/mod.rs` |
+| `zenith tui` CLI command | DONE | `src/cli.rs`, `src/main.rs` |
+| VSCode extension — `package.json` with commands + menus | DONE | `vscode-zenith/package.json` |
+| VSCode extension — TypeScript `extension.ts` | DONE | `vscode-zenith/src/extension.ts` |
+| VSCode: `Zenith: Run`, `Run Job`, `Open Dashboard`, `Open TUI`, `Clean Cache` | DONE | `vscode-zenith/src/extension.ts` |
+| VSCode: output channel + status bar item with run state | DONE | `vscode-zenith/src/extension.ts` |
+| VSCode: embedded WebView dashboard proxy panel | DONE | `vscode-zenith/src/extension.ts` |
+| VSCode: YAML diagnostics (warns when no `jobs:` block) | DONE | `vscode-zenith/src/extension.ts` |
+| JSON Schema for `.zenith.yml` (autocomplete + validation) | DONE | `vscode-zenith/schemas/zenith-schema.json` |
+| Language configuration for `.zenith.yml` | DONE | `vscode-zenith/language-configuration.json` |
+
+---
+
+## Phases 12–15 — Platform & OS-Level Runtime
 
 **Status:** NOT STARTED — see [phase_11_15.md](phase_11_15.md)
 
 ---
 
-## What to Build Next (Phase 11 — GUI & IDE Integration)
+## What to Build Next (Phase 12 — Low-Level System Optimization)
 
 Priority order for the next coding session:
 
-1. **Axum HTTP dashboard** (`src/dashboard/`)
-   - `zenith dashboard` starts a local HTTP server on port 7620
-   - Live job status, log streaming via SSE, cache stats
-
-2. **TUI (terminal UI)** using `ratatui`
-   - `zenith tui` — interactive job picker, live log panel, cache browser
-
-3. **VSCode extension scaffolding** (`editors/vscode/`)
-   - Extension that reads `.zenith.yml` and adds run buttons per job
+1. **Snapshot-based sandbox restore** — save VM/container state after provisioning, restore instead of re-provision per run (2–10× speedup)
+2. **Content-addressable layer cache** — deduplicate rootfs layers across OS images using SHA-256 of tar segments
+3. **Parallel step execution** — `depends-on:` field to express step dependencies, run independent steps concurrently within a job
+4. **Resource limits** — `resources: { cpu: 2, memory: 512m }` per job, enforced via cgroups (Linux) or job objects (Windows)
+5. **Incremental archive diffing** — only re-archive changed files in artifact cache, not the full directory tree
 
 ---
 

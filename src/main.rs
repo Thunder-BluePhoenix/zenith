@@ -12,6 +12,8 @@ use zenith::remote;
 use zenith::runner;
 use zenith::sandbox;
 use zenith::toolchain;
+use zenith::tui;
+use zenith::ui;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -103,6 +105,16 @@ async fn main() -> Result<()> {
         // ─── zenith plugin ───────────────────────────────────────────────────
         cli::Commands::Plugin(plugin_cmd) => {
             handle_plugin(plugin_cmd).await?;
+        }
+
+        // ─── zenith ui ───────────────────────────────────────────────────────
+        cli::Commands::Ui { port } => {
+            ui::server::serve(port).await?;
+        }
+
+        // ─── zenith tui ──────────────────────────────────────────────────────
+        cli::Commands::Tui => {
+            tui::run()?;
         }
 
         // ─── zenith shell ────────────────────────────────────────────────────

@@ -1,0 +1,117 @@
+{
+  "name": "vscode-zenith",
+  "displayName": "Zenith Workflow Runner",
+  "description": "Run and monitor Zenith workflows from VS Code",
+  "version": "0.1.0",
+  "publisher": "zenith-dev",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Other"],
+  "activationEvents": [
+    "workspaceContains:.zenith.yml",
+    "onCommand:zenith.run",
+    "onCommand:zenith.openDashboard",
+    "onCommand:zenith.openTui"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "zenith.run",
+        "title": "Zenith: Run Workflow",
+        "icon": "$(play)"
+      },
+      {
+        "command": "zenith.runJob",
+        "title": "Zenith: Run Specific Job"
+      },
+      {
+        "command": "zenith.openDashboard",
+        "title": "Zenith: Open Web Dashboard"
+      },
+      {
+        "command": "zenith.openTui",
+        "title": "Zenith: Open TUI Dashboard"
+      },
+      {
+        "command": "zenith.cacheClean",
+        "title": "Zenith: Clean Cache"
+      },
+      {
+        "command": "zenith.showOutput",
+        "title": "Zenith: Show Output Channel"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "zenith.run",
+          "when": "resourceFilename == '.zenith.yml'",
+          "group": "navigation"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "zenith.run",
+          "when": "resourceFilename == '.zenith.yml'",
+          "group": "zenith"
+        }
+      ]
+    },
+    "languages": [
+      {
+        "id": "zenith-yaml",
+        "aliases": ["Zenith Workflow"],
+        "filenamePatterns": [".zenith.yml", ".zenith.yaml"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "zenith-yaml",
+        "scopeName": "source.zenith.yaml",
+        "path": "./syntaxes/zenith.tmLanguage.json"
+      }
+    ],
+    "yamlValidation": [
+      {
+        "fileMatch": [".zenith.yml", ".zenith.yaml"],
+        "url": "./schemas/zenith-schema.json"
+      }
+    ],
+    "configuration": {
+      "title": "Zenith",
+      "properties": {
+        "zenith.binaryPath": {
+          "type": "string",
+          "default": "zenith",
+          "description": "Path to the zenith binary (defaults to 'zenith' on PATH)"
+        },
+        "zenith.dashboardPort": {
+          "type": "number",
+          "default": 7622,
+          "description": "Port for the Zenith web dashboard"
+        },
+        "zenith.autoOpenDashboard": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically open the web dashboard when a run starts"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "package": "vsce package",
+    "install-deps": "npm install"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.0.0"
+  }
+}

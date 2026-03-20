@@ -60,8 +60,17 @@ serde_json = "1.0"
 # TOML for plugin.toml manifest parsing (Phase 8) and remotes.toml (Phase 9)
 toml = "0.8"
 
-# SSE streaming for cloud log tailing (Phase 10)
+# SSE streaming for cloud log tailing (Phase 10) and web dashboard
 futures-util = "0.3"
+
+# Web dashboard (Phase 11)
+axum          = { version = "0.7", features = ["macros"] }
+tower-http    = { version = "0.5", features = ["cors", "fs"] }
+tokio-stream  = "0.1"
+
+# TUI — terminal dashboard (Phase 11)
+ratatui   = "0.26"
+crossterm = "0.27"
 
 
 # For Linux: raw syscall bindings (namespaces, chroot, mount, unshare)

@@ -1,0 +1,122 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Zenith Workflow Configuration",
+  "description": "Schema for .zenith.yml workflow configuration files",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Human-readable workflow name"
+    },
+    "on": {
+      "type": "object",
+      "description": "Trigger conditions (informational; local runner ignores these)"
+    },
+    "env": {
+      "type": "object",
+      "description": "Global toolchain declarations (node, python, go, rust)",
+      "properties": {
+        "node":   { "type": "string", "description": "Node.js version, e.g. '20'" },
+        "python": { "type": "string", "description": "Python version, e.g. '3.12.3'" },
+        "go":     { "type": "string", "description": "Go version, e.g. '1.22.0'" },
+        "rust":   { "type": "string", "description": "Rust toolchain, e.g. 'stable'" }
+      },
+      "additionalProperties": { "type": "string" }
+    },
+    "jobs": {
+      "type": "object",
+      "description": "Map of job name to job definition",
+      "additionalProperties": {
+        "$ref": "#/definitions/job"
+      }
+    }
+  },
+  "definitions": {
+    "job": {
+      "type": "object",
+      "required": ["steps"],
+      "properties": {
+        "runs-on": {
+          "type": "string",
+          "description": "Execution backend: container, firecracker, wasm, wine, or plugin name",
+          "default": "container"
+        },
+        "os": {
+          "type": "string",
+          "description": "OS image for the container backend"
+        },
+        "toolchain": {
+          "type": "object",
+          "description": "Per-job toolchain overrides",
+          "properties": {
+            "node":   { "type": "string" },
+            "python": { "type": "string" },
+            "go":     { "type": "string" },
+            "rust":   { "type": "string" }
+          }
+        },
+        "strategy": {
+          "type": "object",
+          "description": "Matrix strategy",
+          "required": ["matrix"],
+          "properties": {
+            "matrix": {
+              "type": "object",
+              "description": "Map of variable name to list of values",
+              "additionalProperties": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            }
+          }
+        },
+        "steps": {
+          "type": "array",
+          "description": "Ordered list of steps",
+          "items": { "$ref": "#/definitions/step" }
+        }
+      }
+    },
+    "step": {
+      "type": "object",
+      "required": ["name", "run"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Step display name"
+        },
+        "run": {
+          "type": "string",
+          "description": "Shell command(s) to execute"
+        },
+        "env": {
+          "type": "object",
+          "description": "Environment variables for this step",
+          "additionalProperties": { "type": "string" }
+        },
+        "cache": {
+          "type": "object",
+          "description": "Caching configuration",
+          "properties": {
+            "key":   { "type": "string", "description": "Cache bucket key" },
+            "paths": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Paths to archive as cache artifacts"
+            },
+            "watch": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Glob patterns to hash for cache invalidation"
+            },
+            "ttl_secs": {
+              "type": "integer",
+              "description": "Cache TTL in seconds",
+              "default": 86400
+            }
+          }
+        }
+      }
+    }
+  }
+}

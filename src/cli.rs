@@ -74,6 +74,16 @@ pub enum Commands {
     /// Run workflows on the Zenith cloud service (Phase 10)
     #[command(subcommand)]
     Cloud(CloudCommands),
+
+    /// Start the web dashboard (Phase 11)
+    Ui {
+        /// Port to listen on (default: 7622)
+        #[arg(long, default_value_t = 7622)]
+        port: u16,
+    },
+
+    /// Open the terminal (TUI) dashboard (Phase 11)
+    Tui,
 }
 
 // ─── Cache subcommands ────────────────────────────────────────────────────────

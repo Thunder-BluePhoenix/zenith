@@ -1,4 +1,5 @@
 use crate::config::{ZenithConfig, Job, EnvConfig};
+use crate::ui::history::RunLogger;
 use anyhow::{Result, Context};
 use tracing::{info, error, debug, warn};
 use tokio::process::Command;
@@ -102,6 +103,9 @@ async fn execute_single_job(
 
     info!("Starting job instance: {}", instance_name);
 
+    // Phase 11: create a run logger for this job instance
+    let mut logger = RunLogger::new(&instance_name);
+
     // Resolve placeholders in runs-on
     let runs_on = resolve_placeholders(
         job.runs_on.as_deref().unwrap_or("local"), 
@@ -174,6 +178,7 @@ async fn execute_single_job(
         if let Some(ref hash) = step_hash {
             if cache_manager.as_ref().map(|cm| cm.is_cached(hash)).unwrap_or(false) {
                 info!("[{}] [CACHED] Step {}: {}", instance_name, i + 1, resolved_name);
+                logger.log_step_cached(i, &resolved_name);
                 // Restore artifacts so downstream steps can use them
                 if let (Some(ref cm), Some(ref ws)) = (&cache_manager, &workspace_path) {
                     let _ = cm.restore_artifacts(hash, ws);
@@ -183,37 +188,42 @@ async fn execute_single_job(
         }
 
         info!("[{}] Step {}/{}: {}", instance_name, i + 1, job.steps.len(), resolved_name);
+        logger.log_step_start(i, &resolved_name);
 
         let resolved_run = resolve_placeholders(&step.run, &matrix);
         let wd = step.working_directory.clone()
             .or_else(|| job.working_directory.clone())
             .map(|d| resolve_placeholders(&d, &matrix));
 
-        let result = if let Some(ref cid) = container_id {
-            backend.execute(cid, &runs_on, &arch, &resolved_run, Some(merged_env), wd).await
+        let (ok, log_lines) = if let Some(ref cid) = container_id {
+            let res = backend.execute(cid, &runs_on, &arch, &resolved_run, Some(merged_env), wd).await;
+            (res.is_ok(), vec![])  // sandbox output not captured; backend owns its own I/O
         } else {
-            run_shell_command(&resolved_run, Some(merged_env), wd).await
+            match run_shell_command(&resolved_run, Some(merged_env), wd).await {
+                Ok(lines)  => (true, lines),
+                Err(lines) => (false, lines),
+            }
         };
 
-        match result {
-            Err(e) if step.allow_failure => {
-                warn!("[{}] Step failed (allowed): {}", instance_name, e);
-            }
-            Err(e) => {
-                error!("[{}] Step failed: {}", instance_name, e);
+        logger.log_step_done(i, &resolved_name, ok, log_lines);
+
+        if !ok {
+            if step.allow_failure {
+                warn!("[{}] Step failed (allowed): {}", instance_name, resolved_name);
+            } else {
+                error!("[{}] Step failed: {}", instance_name, resolved_name);
                 success = false;
                 break;
             }
-            Ok(()) => {
-                // Phase 6: Save cache entry + archive artifacts
-                if let Some(ref hash) = step_hash {
-                    if let Some(ref cm) = cache_manager {
-                        let ws_ref = workspace_path.as_deref();
-                        let _ = cm.update_cache(hash, &runs_on, &arch, step, ws_ref);
-                    }
+        } else {
+            // Phase 6: Save cache entry + archive artifacts
+            if let Some(ref hash) = step_hash {
+                if let Some(ref cm) = cache_manager {
+                    let ws_ref = workspace_path.as_deref();
+                    let _ = cm.update_cache(hash, &runs_on, &arch, step, ws_ref);
                 }
-                info!("[{}] Step {} done.", instance_name, i + 1);
             }
+            info!("[{}] Step {} done.", instance_name, i + 1);
         }
     }
 
@@ -224,6 +234,8 @@ async fn execute_single_job(
             error!("[{}] Failed to tear down lab: {}", instance_name, e);
         });
     }
+
+    logger.finalize(success);
 
     if success {
         info!("[{}] Completed successfully!", instance_name);
@@ -263,44 +275,61 @@ fn resolve_placeholders(text: &str, matrix: &HashMap<String, String>) -> String 
 }
 
 
+/// Runs a shell command, printing output in real time and collecting log lines.
+/// Returns Ok(lines) on success, Err(lines) on failure.
 async fn run_shell_command(
-    cmd: &str, 
+    cmd: &str,
     env: Option<HashMap<String, String>>,
-    working_directory: Option<String>
-) -> Result<()> {
+    working_directory: Option<String>,
+) -> std::result::Result<Vec<String>, Vec<String>> {
     #[cfg(target_os = "windows")]
-    let shell = "cmd";
-    #[cfg(target_os = "windows")]
-    let args = ["/C", cmd];
-
+    let (shell, flag) = ("cmd", "/C");
     #[cfg(not(target_os = "windows"))]
-    let shell = "sh";
-    #[cfg(not(target_os = "windows"))]
-    let args = ["-c", cmd];
+    let (shell, flag) = ("sh", "-c");
 
     let mut command = Command::new(shell);
-    command.args(&args)
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit());
+    command.args([flag, cmd])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
 
     if let Some(wd) = working_directory {
         command.current_dir(wd);
     }
-
     if let Some(env_vars) = env {
-        for (k, v) in env_vars {
-            command.env(k, v);
-        }
+        for (k, v) in env_vars { command.env(k, v); }
     }
 
-    let mut child = command.spawn()
-        .context(format!("Failed to spawn command: {}", cmd))?;
+    let child = match command.spawn() {
+        Ok(c) => c,
+        Err(e) => return Err(vec![format!("Failed to spawn: {}", e)]),
+    };
 
-    let status = child.wait().await?;
-    
-    if !status.success() {
-        return Err(anyhow::anyhow!("Command failed: {}", cmd));
+    let out = match child.wait_with_output().await {
+        Ok(o) => o,
+        Err(e) => return Err(vec![format!("Failed to wait: {}", e)]),
+    };
+
+    // Print captured output so the user still sees it in the terminal
+    if !out.stdout.is_empty() {
+        print!("{}", String::from_utf8_lossy(&out.stdout));
     }
-    
-    Ok(())
+    if !out.stderr.is_empty() {
+        eprint!("{}", String::from_utf8_lossy(&out.stderr));
+    }
+
+    // Collect both streams into log lines
+    let mut lines: Vec<String> = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(|l| l.to_string())
+        .collect();
+    for l in String::from_utf8_lossy(&out.stderr).lines() {
+        lines.push(format!("[stderr] {}", l));
+    }
+
+    if out.status.success() {
+        Ok(lines)
+    } else {
+        lines.push(format!("exit status: {}", out.status));
+        Err(lines)
+    }
 }
