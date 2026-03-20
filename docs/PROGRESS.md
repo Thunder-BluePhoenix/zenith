@@ -337,6 +337,11 @@ Priority order for the next coding session:
 | 7 | [phase_7.md](phase_7.md) |
 | 8 | [phase_8.md](phase_8.md) |
 | Plugin authoring | [plugin_authoring.md](plugin_authoring.md) |
-| 9–10 | [phase_9_10.md](phase_9_10.md) |
-| 11–15 | [phase_11_15.md](phase_11_15.md) |
+| 9 | [phase_9.md](phase_9.md) |
+| 10 | [phase_10.md](phase_10.md) |
+| 11 | [phase_11.md](phase_11.md) |
+| 12 | [phase_12.md](phase_12.md) |
+| 13 | [phase_13.md](phase_13.md) |
+| 14 | [phase_14.md](phase_14.md) |
+| 15 | [phase_15.md](phase_15.md) |
 | Motto | [motto.md](motto.md) |
