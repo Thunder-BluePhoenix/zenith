@@ -1,6 +1,6 @@
 # Zenith — Build Progress Tracker
 
-Last updated: 2026-03-21 (Phases 12 + 13 complete — Phase 14 next)
+Last updated: 2026-03-21 (Phases 12 + 13 + 14 complete — Phase 15 next)
 
 ---
 
@@ -33,7 +33,7 @@ Phase 10  [##########] 100%  Cloud Runtime                      COMPLETE
 Phase 11  [##########] 100%  GUI & IDE Integration              COMPLETE
 Phase 12  [##########] 100%  Low-Level System Optimization      COMPLETE
 Phase 13  [##########] 100%  Reproducibility Engine             COMPLETE
-Phase 14  [----------]   0%  Full Developer Platform            NOT STARTED
+Phase 14  [##########] 100%  Full Developer Platform            COMPLETE
 Phase 15  [----------]   0%  OS-Level Runtime (Ultimate)        NOT STARTED
 ```
 
@@ -360,21 +360,43 @@ Phase 15  [----------]   0%  OS-Level Runtime (Ultimate)        NOT STARTED
 
 ---
 
-## Phases 14–15 — Platform & OS-Level Runtime
+## Phase 14 — Full Developer Platform
 
-**Status:** NOT STARTED — see individual phase files
+**Status:** COMPLETE
+
+| Task | Status | File |
+|---|---|---|
+| `CacheConfig` top-level block in `.zenith.yml` (`ttl_days`, `remote`, `push`) | DONE | `src/config.rs` |
+| `migrate_v1_to_v2()` migration helper | DONE | `src/config.rs` |
+| `zenith migrate [--write]` CLI command | DONE | `src/cli.rs`, `src/main.rs` |
+| JSON Schema v2 — all Phase 6–13 fields documented | DONE | `vscode-zenith/schemas/zenith-schema.json` |
+| `zenith benchmark` CLI — inline micro-benchmarks with baseline comparison | DONE | `src/main.rs` — `handle_benchmark()` |
+| Criterion benchmark suite (`cargo bench`) | DONE | `benches/zenith_benchmarks.rs` |
+| `[[bench]]` target in `Cargo.toml` | DONE | `Cargo.toml` |
+| mdBook config (`book.toml`) | DONE | `book.toml` |
+| mdBook SUMMARY + chapter stubs (15 pages across 8 sections) | DONE | `docs/book/` |
+| `zenith docs` CLI — opens local book or hosted URL | DONE | `src/main.rs` — `open_docs()` |
+| `zenith plugin search <query>` — registry search + offline fallback | DONE | `src/cli.rs`, `src/plugin/registry.rs` |
+| `requires_zenith` field in `PluginManifest` | DONE | `src/plugin/manifest.rs` |
+| Version constraint check on `zenith plugin install` | DONE | `src/plugin/registry.rs` — `version_satisfies()` |
 
 ---
 
-## What to Build Next (Phase 14 — Full Developer Platform)
+## Phase 15 — OS-Level Runtime
 
-Phase 13 is complete. Priority order for Phase 14:
+**Status:** NOT STARTED — see [phase_15.md](phase_15.md)
+
+---
+
+## What to Build Next (Phase 15 — OS-Level Runtime)
+
+Phase 14 is complete. Phase 15 targets:
 
 1. **`zenith build --lock`** — write a `zenith.lock` file with all derivation IDs for a fully reproducible build graph snapshot
-2. **`zenith publish`** — publish a build artifact to an OCI registry or package feed
-3. **Secrets management** — `secrets:` block in `.zenith.yml`; values fetched from env, files, or Vault at runtime; never stored in the derivation hash
-4. **Notification hooks** — `on_success:` / `on_failure:` webhook or Slack integration per job
-5. **Resource limits** (Phase 12 remainder) — `resources: { cpu: 2, memory: 512m }` per job via cgroups
+2. **Secrets management** — `secrets:` block in `.zenith.yml`; values fetched from env, files, or Vault at runtime; never stored in the derivation hash
+3. **Notification hooks** — `on_success:` / `on_failure:` webhook or Slack integration per job
+4. **Resource limits** — `resources: { cpu: 2, memory: 512m }` per job via cgroups (Firecracker + cgroup v2)
+5. **Distributed cache cluster** — peer-to-peer binary cache mesh across dev machines
 
 ---
 

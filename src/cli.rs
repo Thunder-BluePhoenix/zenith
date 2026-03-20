@@ -95,6 +95,26 @@ pub enum Commands {
     /// Download and manage Zenith low-level tools (Phase 12)
     #[command(subcommand)]
     Tools(ToolsCommands),
+
+    /// Upgrade .zenith.yml from v1 schema to v2 (Phase 14)
+    Migrate {
+        /// Path to the config file to upgrade (default: .zenith.yml)
+        #[arg(default_value = ".zenith.yml")]
+        file: String,
+        /// Write the upgraded config in-place instead of printing to stdout
+        #[arg(long, default_value_t = false)]
+        write: bool,
+    },
+
+    /// Run the Criterion performance benchmark suite (Phase 14)
+    Benchmark {
+        /// Save results as the new baseline for future comparison
+        #[arg(long, default_value_t = false)]
+        save_baseline: bool,
+    },
+
+    /// Open the Zenith documentation site in the browser (Phase 14)
+    Docs,
 }
 
 // ─── Store subcommands ────────────────────────────────────────────────────────
@@ -203,9 +223,9 @@ pub enum EnvCommands {
 pub enum PluginCommands {
     /// List all installed plugins
     List,
-    /// Install a plugin from a local directory path
+    /// Install a plugin from a local directory path or registry name
     Install {
-        /// Path to the plugin directory containing plugin.toml
+        /// Path to the plugin directory containing plugin.toml, or registry name
         path: String,
     },
     /// Remove an installed plugin
@@ -217,6 +237,11 @@ pub enum PluginCommands {
     Info {
         /// Plugin name
         name: String,
+    },
+    /// Search the Zenith plugin registry (Phase 14)
+    Search {
+        /// Search query (name, keyword, or description fragment)
+        query: String,
     },
 }
 

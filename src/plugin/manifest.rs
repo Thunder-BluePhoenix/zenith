@@ -42,6 +42,10 @@ pub struct PluginManifest {
     pub entrypoint:  String,
     pub description: Option<String>,
 
+    /// Minimum Zenith version required to run this plugin (Phase 14).
+    /// Semver constraint string, e.g. ">=0.2.0". Zenith checks this on install.
+    pub requires_zenith: Option<String>,
+
     /// Resolved absolute path to the plugin directory (set after loading, not in TOML)
     #[serde(skip)]
     pub install_dir: PathBuf,

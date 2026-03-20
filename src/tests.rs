@@ -294,7 +294,7 @@ mod runner_tests {
         };
         let mut jobs = HashMap::new();
         jobs.insert("ci".into(), job);
-        ZenithConfig { version: "1".into(), jobs: Some(jobs), steps: None, env: None }
+        ZenithConfig { version: "1".into(), jobs: Some(jobs), steps: None, env: None, cache: None }
     }
 
     #[tokio::test]
@@ -341,7 +341,7 @@ mod runner_tests {
         let mut jobs = HashMap::new();
         jobs.insert("a".into(), job_a);
         jobs.insert("b".into(), job_b);
-        let cfg = ZenithConfig { version: "1".into(), jobs: Some(jobs), steps: None, env: None };
+        let cfg = ZenithConfig { version: "1".into(), jobs: Some(jobs), steps: None, env: None, cache: None };
 
         // Select only job "a" — job "b" (exit 1) must NOT run
         let result = execute_local(cfg, Some("a".into()), true).await;

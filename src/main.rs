@@ -142,6 +142,31 @@ async fn main() -> Result<()> {
                 handle_env(cli::EnvCommands::Shell).await?;
             }
         }
+
+        // ─── zenith migrate ──────────────────────────────────────────────────
+        cli::Commands::Migrate { file, write } => {
+            let src = std::fs::read_to_string(&file)
+                .with_context(|| format!("Cannot read '{}'", file))?;
+            let upgraded = config::migrate_v1_to_v2(&src)?;
+            if write {
+                std::fs::write(&file, &upgraded)
+                    .with_context(|| format!("Cannot write '{}'", file))?;
+                println!("Upgraded '{}' to schema v2 in-place.", file);
+            } else {
+                println!("{}", upgraded);
+                eprintln!("\n# Run with --write to apply changes in-place.");
+            }
+        }
+
+        // ─── zenith benchmark ────────────────────────────────────────────────
+        cli::Commands::Benchmark { save_baseline } => {
+            handle_benchmark(save_baseline)?;
+        }
+
+        // ─── zenith docs ─────────────────────────────────────────────────────
+        cli::Commands::Docs => {
+            open_docs()?;
+        }
     }
 
     Ok(())
@@ -328,6 +353,10 @@ async fn handle_plugin(cmd: cli::PluginCommands) -> Result<()> {
             if let Some(desc) = &p.description {
                 println!("Description: {}", desc);
             }
+        }
+
+        cli::PluginCommands::Search { query } => {
+            plugin::registry::search_registry(&query).await?;
         }
     }
     Ok(())
@@ -633,6 +662,155 @@ fn print_derivations(cfg: &config::ZenithConfig, target_job: Option<&str>) -> Re
             .join("\n"));
         println!();
     }
+    Ok(())
+}
+
+// ─── Benchmark command handler (Phase 14) ────────────────────────────────────
+
+fn handle_benchmark(save_baseline: bool) -> Result<()> {
+    use std::path::PathBuf;
+
+    let home = sandbox::zenith_home();
+    let baseline_path = home.join("bench-baseline.json");
+
+    println!("Running Zenith performance benchmarks...\n");
+
+    // Micro-benchmarks run inline (no Criterion dependency needed in the binary)
+    let results = run_inline_benchmarks()?;
+
+    // Load previous baseline for comparison
+    let baseline: Option<serde_json::Value> = if baseline_path.exists() {
+        let s = std::fs::read_to_string(&baseline_path)?;
+        serde_json::from_str(&s).ok()
+    } else {
+        None
+    };
+
+    println!("{:<30}  {:>12}  {:>10}", "Benchmark", "Time", "vs baseline");
+    println!("{}", "-".repeat(58));
+
+    let mut regression = false;
+    let mut new_baseline = serde_json::Map::new();
+
+    for (name, ns) in &results {
+        let prev_ns = baseline.as_ref()
+            .and_then(|b| b[name].as_f64());
+
+        let delta_str = match prev_ns {
+            Some(prev) => {
+                let pct = ((*ns as f64 - prev) / prev) * 100.0;
+                if pct > 10.0 {
+                    regression = true;
+                    format!("{:+.1}% !", pct)
+                } else if pct < -5.0 {
+                    format!("{:+.1}% faster", pct)
+                } else {
+                    format!("{:+.1}%", pct)
+                }
+            }
+            None => "new".to_string(),
+        };
+
+        println!("{:<30}  {:>12}  {:>10}",
+            name, format_ns(*ns), delta_str);
+
+        new_baseline.insert(name.clone(), serde_json::Value::from(*ns as f64));
+    }
+
+    if save_baseline {
+        let data = serde_json::Value::Object(new_baseline);
+        std::fs::create_dir_all(&home)?;
+        std::fs::write(&baseline_path, serde_json::to_string_pretty(&data)?)?;
+        println!("\nBaseline saved to {}.", baseline_path.display());
+    } else {
+        println!("\nRun with --save-baseline to update the comparison baseline.");
+    }
+
+    if regression {
+        anyhow::bail!("Performance regression detected (>10% slower than baseline).");
+    }
+
+    Ok(())
+}
+
+/// Run lightweight inline benchmarks — returns (name, median_ns) pairs.
+fn run_inline_benchmarks() -> Result<Vec<(String, u64)>> {
+    let mut results = Vec::new();
+
+    // config_parse: measure YAML parse + validation time
+    results.push(("config_parse".to_string(), bench_ns(100, || {
+        let yaml = "version: \"2\"\njobs:\n  build:\n    runs-on: alpine\n    steps:\n      - name: Build\n        run: make\n";
+        let _: zenith::config::ZenithConfig = serde_yaml::from_str(yaml).unwrap();
+    })?));
+
+    // cache_key_hash: measure SHA-256 hash of a step command
+    results.push(("cache_key_hash".to_string(), bench_ns(1000, || {
+        use sha2::{Sha256, Digest};
+        let mut h = Sha256::new();
+        h.update(b"cargo build --release -- target/release/myapp");
+        let _ = h.finalize();
+    })?));
+
+    // derivation_id: measure full derivation compute
+    results.push(("derivation_id".to_string(), bench_ns(500, || {
+        use std::collections::HashMap;
+        let step = zenith::config::Step {
+            name: Some("Build".into()),
+            run: "cargo build --release".into(),
+            env: None,
+            working_directory: None,
+            allow_failure: false,
+            cache: None,
+            watch: vec!["src/**/*.rs".into()],
+            outputs: vec!["target/release/myapp".into()],
+            cache_key: None,
+            depends_on: vec![],
+        };
+        let env: HashMap<String, String> = HashMap::new();
+        let drv = zenith::build::derivation::Derivation::from_step(&step, &env, "alpine", "x86_64");
+        let _ = drv.id();
+    })?));
+
+    Ok(results)
+}
+
+fn bench_ns<F: Fn()>(iters: u64, f: F) -> Result<u64> {
+    // Warm up
+    for _ in 0..10 { f(); }
+
+    let start = std::time::Instant::now();
+    for _ in 0..iters { f(); }
+    let elapsed = start.elapsed().as_nanos() as u64;
+
+    Ok(elapsed / iters)
+}
+
+fn format_ns(ns: u64) -> String {
+    if ns < 1_000 { format!("{}ns", ns) }
+    else if ns < 1_000_000 { format!("{:.2}µs", ns as f64 / 1_000.0) }
+    else { format!("{:.2}ms", ns as f64 / 1_000_000.0) }
+}
+
+// ─── Docs command handler (Phase 14) ─────────────────────────────────────────
+
+fn open_docs() -> Result<()> {
+    // Try to open the locally-built mdBook site, fall back to the hosted URL.
+    let local_index = std::path::Path::new("book/index.html");
+    let url = if local_index.exists() {
+        format!("file://{}", local_index.canonicalize()?.display())
+    } else {
+        "https://zenith.run/docs".to_string()
+    };
+
+    println!("Opening docs: {}", url);
+
+    #[cfg(target_os = "macos")]
+    std::process::Command::new("open").arg(&url).spawn().ok();
+    #[cfg(target_os = "linux")]
+    std::process::Command::new("xdg-open").arg(&url).spawn().ok();
+    #[cfg(target_os = "windows")]
+    std::process::Command::new("cmd").args(["/c", "start", &url]).spawn().ok();
+
     Ok(())
 }
 

@@ -20,6 +20,14 @@ pub struct ZenithConfig {
     ///     go: "1.22"
     pub env: Option<EnvConfig>,
 
+    /// Top-level cache settings (Phase 14: Config Schema v2)
+    /// Example:
+    ///   cache:
+    ///     ttl_days: 14
+    ///     remote: "https://cache.zenith.run"
+    ///     push: true
+    pub cache: Option<CacheConfig>,
+
     /// Named jobs (GitHub Actions style)
     pub jobs: Option<HashMap<String, Job>>,
 
@@ -28,6 +36,61 @@ pub struct ZenithConfig {
 }
 
 fn default_version() -> String { "1".into() }
+
+// ─── Phase 14: Top-level cache config ────────────────────────────────────────
+
+/// Top-level cache configuration block in .zenith.yml
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct CacheConfig {
+    /// Maximum age in days before step-cache entries are pruned (default: 7)
+    #[serde(default = "default_ttl_days")]
+    pub ttl_days: u64,
+
+    /// URL of the remote binary cache (optional)
+    pub remote: Option<String>,
+
+    /// Automatically push build outputs to the remote cache (default: false)
+    #[serde(default)]
+    pub push: bool,
+}
+
+fn default_ttl_days() -> u64 { 7 }
+
+// ─── Migration helpers (Phase 14: zenith migrate) ────────────────────────────
+
+/// Upgrade a v1 .zenith.yml string to a v2 string with all schema features
+/// made explicit. The upgraded YAML is returned as a String.
+pub fn migrate_v1_to_v2(v1_yaml: &str) -> Result<String> {
+    let mut cfg: ZenithConfig = serde_yaml::from_str(v1_yaml)
+        .context("Failed to parse .zenith.yml — check your YAML syntax")?;
+
+    // Bump version
+    cfg.version = "2".to_string();
+
+    // Ensure cache block is present
+    if cfg.cache.is_none() {
+        cfg.cache = Some(CacheConfig::default());
+    }
+
+    // Ensure every step has the new v2 fields defaulted
+    if let Some(ref mut jobs) = cfg.jobs {
+        for job in jobs.values_mut() {
+            for step in job.steps.iter_mut() {
+                // watch / outputs / depends_on already have #[serde(default)] on the struct;
+                // they deserialize to empty vecs automatically, so nothing extra needed.
+                let _ = step;
+            }
+        }
+    }
+
+    let out = serde_yaml::to_string(&cfg)
+        .context("Failed to serialise upgraded config")?;
+
+    Ok(format!(
+        "# Zenith config — schema v2 (auto-migrated by `zenith migrate`)\n# All Phase 6–13 features are now explicit.\n\n{}",
+        out
+    ))
+}
 
 // ─── Phase 7: Toolchain declarations ─────────────────────────────────────────
 

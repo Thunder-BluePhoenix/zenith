@@ -1,9 +1,15 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Zenith Workflow Configuration",
-  "description": "Schema for .zenith.yml workflow configuration files",
+  "description": "Schema for .zenith.yml workflow configuration files (v2)",
   "type": "object",
   "properties": {
+    "version": {
+      "type": "string",
+      "description": "Schema version — use '2' to enable all Phase 6–13 features",
+      "enum": ["1", "2"],
+      "default": "1"
+    },
     "name": {
       "type": "string",
       "description": "Human-readable workflow name"
@@ -23,12 +29,40 @@
       },
       "additionalProperties": { "type": "string" }
     },
+    "cache": {
+      "type": "object",
+      "description": "Top-level cache settings (v2 schema, Phase 14)",
+      "properties": {
+        "ttl_days": {
+          "type": "integer",
+          "description": "Maximum cache entry age in days before pruning (default: 7)",
+          "default": 7,
+          "minimum": 1
+        },
+        "remote": {
+          "type": "string",
+          "description": "URL of the remote binary cache server",
+          "examples": ["https://cache.zenith.run"]
+        },
+        "push": {
+          "type": "boolean",
+          "description": "Automatically push build outputs to the remote cache",
+          "default": false
+        }
+      },
+      "additionalProperties": false
+    },
     "jobs": {
       "type": "object",
       "description": "Map of job name to job definition",
       "additionalProperties": {
         "$ref": "#/definitions/job"
       }
+    },
+    "steps": {
+      "type": "array",
+      "description": "Flat list of steps (legacy single-job format)",
+      "items": { "$ref": "#/definitions/step" }
     }
   },
   "definitions": {
@@ -38,16 +72,28 @@
       "properties": {
         "runs-on": {
           "type": "string",
+          "description": "OS image for the job (e.g. alpine, ubuntu, centos)",
+          "default": "alpine"
+        },
+        "backend": {
+          "type": "string",
           "description": "Execution backend: container, firecracker, wasm, wine, or plugin name",
+          "enum": ["container", "firecracker", "wasm", "wine"],
           "default": "container"
         },
-        "os": {
+        "arch": {
           "type": "string",
-          "description": "OS image for the container backend"
+          "description": "Target CPU architecture (x86_64, aarch64)",
+          "enum": ["x86_64", "aarch64"]
+        },
+        "env": {
+          "type": "object",
+          "description": "Job-level environment variables",
+          "additionalProperties": { "type": "string" }
         },
         "toolchain": {
           "type": "object",
-          "description": "Per-job toolchain overrides",
+          "description": "Per-job toolchain overrides (takes priority over top-level env block)",
           "properties": {
             "node":   { "type": "string" },
             "python": { "type": "string" },
@@ -55,9 +101,18 @@
             "rust":   { "type": "string" }
           }
         },
+        "working_directory": {
+          "type": "string",
+          "description": "Working directory for all steps in this job"
+        },
+        "cache": {
+          "type": "boolean",
+          "description": "Enable or disable step-level caching for this entire job",
+          "default": true
+        },
         "strategy": {
           "type": "object",
-          "description": "Matrix strategy",
+          "description": "Matrix strategy for parallel multi-OS/multi-version runs",
           "required": ["matrix"],
           "properties": {
             "matrix": {
@@ -79,11 +134,11 @@
     },
     "step": {
       "type": "object",
-      "required": ["name", "run"],
+      "required": ["run"],
       "properties": {
         "name": {
           "type": "string",
-          "description": "Step display name"
+          "description": "Step display name (also used as a dependency target in depends_on)"
         },
         "run": {
           "type": "string",
@@ -94,27 +149,41 @@
           "description": "Environment variables for this step",
           "additionalProperties": { "type": "string" }
         },
+        "working_directory": {
+          "type": "string",
+          "description": "Override working directory for this step"
+        },
+        "allow_failure": {
+          "type": "boolean",
+          "description": "If true, this step can fail without aborting the job",
+          "default": false
+        },
         "cache": {
-          "type": "object",
-          "description": "Caching configuration",
-          "properties": {
-            "key":   { "type": "string", "description": "Cache bucket key" },
-            "paths": {
-              "type": "array",
-              "items": { "type": "string" },
-              "description": "Paths to archive as cache artifacts"
-            },
-            "watch": {
-              "type": "array",
-              "items": { "type": "string" },
-              "description": "Glob patterns to hash for cache invalidation"
-            },
-            "ttl_secs": {
-              "type": "integer",
-              "description": "Cache TTL in seconds",
-              "default": 86400
-            }
-          }
+          "type": "boolean",
+          "description": "Enable or disable caching for this specific step",
+          "default": true
+        },
+        "cache_key": {
+          "type": "string",
+          "description": "Manual cache key override — disables OS/arch in the hash for cross-platform artifact sharing"
+        },
+        "watch": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Glob patterns for files whose content changes invalidate the cache",
+          "examples": [["src/**/*.rs", "Cargo.toml"]]
+        },
+        "outputs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Paths to files/directories produced by this step — archived on cache miss, restored on hit",
+          "examples": [["target/release/myapp", "dist/"]]
+        },
+        "depends_on": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Step names that must complete before this step starts (enables parallel execution)",
+          "examples": [["Build", "Install deps"]]
         }
       }
     }

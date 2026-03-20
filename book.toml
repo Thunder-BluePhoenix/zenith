@@ -1,0 +1,19 @@
+[book]
+title        = "Zenith — Local Multi-OS Workflow Runtime"
+authors      = ["Zenith Developer"]
+description  = "Documentation for the Zenith CI/CD runtime"
+language     = "en"
+multilingual = false
+src          = "docs/book"
+
+[build]
+build-dir = "book"
+
+[output.html]
+default-theme        = "navy"
+preferred-dark-theme = "navy"
+git-repository-url   = "https://github.com/zenith-run/zenith"
+edit-url-template    = "https://github.com/zenith-run/zenith/edit/main/{path}"
+
+[output.html.search]
+enable = true

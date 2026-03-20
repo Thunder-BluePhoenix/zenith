@@ -46,6 +46,18 @@ pub fn install_from_path(src: &std::path::Path) -> Result<PluginManifest> {
     let manifest = PluginManifest::load(src)
         .context("Failed to read plugin manifest from source directory")?;
 
+    // Phase 14: requires_zenith version check (simple prefix comparison)
+    if let Some(ref req) = manifest.requires_zenith {
+        let zenith_ver = env!("CARGO_PKG_VERSION");
+        if !version_satisfies(zenith_ver, req) {
+            return Err(anyhow::anyhow!(
+                "Plugin '{}' requires Zenith {} but this is v{}.\n\
+                 Upgrade Zenith or install a compatible plugin version.",
+                manifest.name, req, zenith_ver
+            ));
+        }
+    }
+
     let dest = plugins_dir().join(&manifest.name);
     if dest.exists() {
         return Err(anyhow::anyhow!(
@@ -85,6 +97,81 @@ pub fn remove_plugin(name: &str) -> Result<()> {
         .with_context(|| format!("Failed to remove plugin directory {:?}", plugin_dir))
 }
 
+// ─── Phase 14: Plugin registry search ────────────────────────────────────────
+
+/// Registry entry returned from the hosted plugin index.
+#[derive(Debug, serde::Deserialize)]
+struct RegistryEntry {
+    name:        String,
+    version:     String,
+    description: Option<String>,
+    author:      Option<String>,
+    requires_zenith: Option<String>,
+}
+
+/// Search the hosted Zenith plugin registry and print matching results.
+/// Falls back to local installed plugins if the registry is unreachable.
+pub async fn search_registry(query: &str) -> anyhow::Result<()> {
+    // Attempt to fetch the registry index.
+    let registry_url = "https://zenith.run/registry/plugins.json";
+    let q = query.to_lowercase();
+
+    match reqwest::get(registry_url).await {
+        Ok(resp) if resp.status().is_success() => {
+            let entries: Vec<RegistryEntry> = resp.json().await
+                .unwrap_or_default();
+
+            let hits: Vec<&RegistryEntry> = entries.iter()
+                .filter(|e| {
+                    e.name.to_lowercase().contains(&q)
+                    || e.description.as_deref().unwrap_or("").to_lowercase().contains(&q)
+                })
+                .collect();
+
+            if hits.is_empty() {
+                println!("No registry plugins match '{}'.", query);
+                return Ok(());
+            }
+
+            println!("{:<24}  {:<10}  {:<10}  {}",
+                "Name", "Version", "Requires", "Description");
+            println!("{}", "-".repeat(72));
+            for e in hits {
+                println!("{:<24}  {:<10}  {:<10}  {}",
+                    e.name,
+                    e.version,
+                    e.requires_zenith.as_deref().unwrap_or("-"),
+                    e.description.as_deref().unwrap_or("-"));
+            }
+            println!("\nInstall with: zenith plugin install <name>");
+        }
+        _ => {
+            // Offline fallback: search locally installed plugins
+            eprintln!("Registry unreachable — searching locally installed plugins...");
+            let installed = discover_plugins();
+            let hits: Vec<&PluginManifest> = installed.iter()
+                .filter(|p| {
+                    p.name.to_lowercase().contains(&q)
+                    || p.description.as_deref().unwrap_or("").to_lowercase().contains(&q)
+                })
+                .collect();
+
+            if hits.is_empty() {
+                println!("No local plugins match '{}'.", query);
+                return Ok(());
+            }
+            println!("{:<24}  {:<10}  {}", "Name", "Version", "Description");
+            println!("{}", "-".repeat(60));
+            for p in hits {
+                println!("{:<24}  {:<10}  {}",
+                    p.name, p.version,
+                    p.description.as_deref().unwrap_or("-"));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn copy_dir(src: &std::path::Path, dst: &std::path::Path) -> Result<()> {
     std::fs::create_dir_all(dst)?;
     for entry in std::fs::read_dir(src)?.flatten() {
@@ -96,4 +183,41 @@ fn copy_dir(src: &std::path::Path, dst: &std::path::Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Minimal semver constraint check for `requires_zenith`.
+/// Supports operators: >=, >, <=, <, = (or bare version = equality).
+/// Only compares major.minor.patch numeric components.
+fn version_satisfies(actual: &str, req: &str) -> bool {
+    let (op, req_ver) = if let Some(r) = req.strip_prefix(">=") {
+        (">=", r.trim())
+    } else if let Some(r) = req.strip_prefix('>') {
+        (">", r.trim())
+    } else if let Some(r) = req.strip_prefix("<=") {
+        ("<=", r.trim())
+    } else if let Some(r) = req.strip_prefix('<') {
+        ("<", r.trim())
+    } else if let Some(r) = req.strip_prefix('=') {
+        ("=", r.trim())
+    } else {
+        ("=", req.trim())
+    };
+
+    fn parse(v: &str) -> (u64, u64, u64) {
+        let parts: Vec<u64> = v.split('.').filter_map(|p| p.parse().ok()).collect();
+        (parts.first().copied().unwrap_or(0),
+         parts.get(1).copied().unwrap_or(0),
+         parts.get(2).copied().unwrap_or(0))
+    }
+
+    let a = parse(actual);
+    let r = parse(req_ver);
+
+    match op {
+        ">=" => a >= r,
+        ">"  => a > r,
+        "<=" => a <= r,
+        "<"  => a < r,
+        _    => a == r,
+    }
 }
