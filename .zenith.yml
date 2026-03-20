@@ -1,8 +1,16 @@
 version: "1"
 
 jobs:
-  wasm_test:
-    backend: wasm
+  verify:
     steps:
-      - name: Verify Wasm Skeleton
-        run: hello_world.wasm --version
+      - name: Echo platform
+        run: echo "Zenith functional test OK"
+
+      - name: Write a file
+        run: echo "hello from zenith" > zenith_test_out.txt
+
+      - name: Read the file back
+        run: cat zenith_test_out.txt
+
+      - name: Cleanup
+        run: del zenith_test_out.txt

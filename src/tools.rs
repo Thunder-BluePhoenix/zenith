@@ -358,6 +358,65 @@ pub async fn fetch_url(url: &str) -> Result<bytes::Bytes> {
     fetch_bytes(url).await
 }
 
+// ─── Phase 12: Zenith custom kernel + minimal rootfs ─────────────────────────
+
+/// CDN base for Zenith-built artefacts (kernel, rootfs, zenith-init).
+const ZENITH_CDN: &str = "https://cdn.zenith.run/v0.1.0";
+
+/// Ensure the Zenith custom kernel is at `~/.zenith/kernel/vmlinux-zenith`.
+///
+/// This is a stripped-down Linux build optimised for sub-50ms Firecracker
+/// VM boot times, built from `kernel/zenith.config` in the repo.
+pub async fn ensure_zenith_kernel() -> Result<std::path::PathBuf> {
+    let kernel_dir  = crate::sandbox::zenith_home().join("kernel");
+    let kernel_path = kernel_dir.join("vmlinux-zenith");
+
+    if kernel_path.exists() {
+        tracing::debug!("Zenith kernel already present: {:?}", kernel_path);
+        return Ok(kernel_path);
+    }
+
+    let url = format!("{}/kernel/vmlinux-zenith", ZENITH_CDN);
+    tracing::info!("Downloading Zenith custom kernel...");
+
+    std::fs::create_dir_all(&kernel_dir)
+        .context("Cannot create kernel directory")?;
+
+    let bytes = fetch_url(&url).await?;
+    std::fs::write(&kernel_path, &bytes)
+        .context("Failed to write kernel to disk")?;
+
+    tracing::info!("Zenith kernel ready: {:?}", kernel_path);
+    Ok(kernel_path)
+}
+
+/// Ensure the Zenith minimal rootfs is at `~/.zenith/rootfs/zenith-minimal.tar.gz`.
+///
+/// A < 5MB BusyBox + musl rootfs with only what CI actually needs:
+/// sh, curl, git, make, tar. Smaller and faster than Alpine.
+pub async fn ensure_zenith_rootfs() -> Result<std::path::PathBuf> {
+    let rootfs_dir  = crate::sandbox::zenith_home().join("rootfs");
+    let rootfs_path = rootfs_dir.join("zenith-minimal.tar.gz");
+
+    if rootfs_path.exists() {
+        tracing::debug!("Zenith rootfs already present: {:?}", rootfs_path);
+        return Ok(rootfs_path);
+    }
+
+    let url = format!("{}/rootfs/zenith-minimal.tar.gz", ZENITH_CDN);
+    tracing::info!("Downloading Zenith minimal rootfs...");
+
+    std::fs::create_dir_all(&rootfs_dir)
+        .context("Cannot create rootfs directory")?;
+
+    let bytes = fetch_url(&url).await?;
+    std::fs::write(&rootfs_path, &bytes)
+        .context("Failed to write rootfs to disk")?;
+
+    tracing::info!("Zenith rootfs ready: {:?}", rootfs_path);
+    Ok(rootfs_path)
+}
+
 async fn fetch_bytes(url: &str) -> Result<bytes::Bytes> {
     let client = reqwest::Client::new();
     let resp = client

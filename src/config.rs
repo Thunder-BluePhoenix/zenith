@@ -107,6 +107,15 @@ pub struct Step {
     /// When set, Zenith ignores OS/arch in the hash so two matrix nodes can
     /// share the same cached artifact if their outputs are identical.
     pub cache_key: Option<String>,
+
+    /// Step names that must complete before this step starts (Phase 13).
+    /// Steps with no unfulfilled dependencies run concurrently.
+    /// Example:
+    ///   depends_on:
+    ///     - Build
+    ///     - Install deps
+    #[serde(default)]
+    pub depends_on: Vec<String>,
 }
 
 // ─── Config loader ────────────────────────────────────────────────────────────

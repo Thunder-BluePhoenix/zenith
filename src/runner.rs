@@ -103,12 +103,12 @@ async fn execute_single_job(
 
     info!("Starting job instance: {}", instance_name);
 
-    // Phase 11: create a run logger for this job instance
-    let mut logger = RunLogger::new(&instance_name);
+    // Phase 11: run logger — wrapped in Arc<Mutex> for concurrent step access
+    let logger = Arc::new(tokio::sync::Mutex::new(RunLogger::new(&instance_name)));
 
     // Resolve placeholders in runs-on
     let runs_on = resolve_placeholders(
-        job.runs_on.as_deref().unwrap_or("local"), 
+        job.runs_on.as_deref().unwrap_or("local"),
         &matrix
     );
 
@@ -129,8 +129,7 @@ async fn execute_single_job(
     // Workspace path for artifact restore/save (local execution path)
     let workspace_path = std::env::current_dir().ok();
 
-    // Phase 7: Resolve toolchain env — global env: block merged with per-job toolchain: override.
-    // Per-job toolchain takes precedence; global provides defaults.
+    // Phase 7: Resolve toolchain env
     let effective_tc = job.toolchain.as_ref().or(global_env);
     let tool_env = if let Some(tc) = effective_tc {
         crate::toolchain::resolve_toolchain_env_from_config(tc).await
@@ -138,7 +137,7 @@ async fn execute_single_job(
         std::collections::HashMap::new()
     };
 
-    // Phase 1/4/5 Sandbox Provisioning using the backend abstraction
+    // Phase 1/4/5 Sandbox Provisioning
     let container_id = if is_sandboxed {
         let unique_id = format!("{}-{}", runs_on, uuid::Uuid::new_v4().simple());
         info!("[{}] Provisioning {} sandbox: {} (Arch: {})", instance_name, backend.name(), unique_id, arch);
@@ -148,94 +147,184 @@ async fn execute_single_job(
         None
     };
 
-    // Execute steps sequentially within this job instance
+    // ─── Phase 13: Dependency-aware parallel step executor ─────────────────────
+    // Wrap shared resources in Arc so concurrent step tasks can reference them.
+    let backend      = Arc::new(backend);
+    let container_id = Arc::new(container_id);
+    let cache_mgr    = Arc::new(cache_manager);
+    let workspace    = Arc::new(workspace_path);
+    let tool_env     = Arc::new(tool_env);
+    let job_env      = Arc::new(job.env.clone());
+    let job_wd       = Arc::new(job.working_directory.clone());
+    let job_cache    = job.cache;
+
+    // Track which steps have not yet been started (by index).
+    let mut pending: Vec<usize> = (0..job.steps.len()).collect();
+    // Track completed step names so deps can be resolved.
+    let mut completed: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // Running step tasks — each yields (step_index, resolved_name, success).
+    let mut running: JoinSet<(usize, String, bool)> = JoinSet::new();
     let mut success = true;
-    for (i, step) in job.steps.iter().enumerate() {
-        let step_name = step.name.as_deref().unwrap_or("Unnamed Step");
-        let resolved_name = resolve_placeholders(step_name, &matrix);
 
-        // Merge env: job-level → step-level → toolchain PATH additions
-        let mut merged_env: HashMap<String, String> = tool_env.clone();
-        if let Some(ref job_env) = job.env {
-            for (k, v) in job_env {
-                merged_env.insert(k.clone(), resolve_placeholders(v, &matrix));
-            }
-        }
-        if let Some(ref step_env) = step.env {
-            for (k, v) in step_env {
-                merged_env.insert(k.clone(), resolve_placeholders(v, &matrix));
-            }
-        }
-
-        // Phase 6: Compute cache hash (skipped when --no-cache / force=true)
-        let step_cache_enabled = !force && step.cache.unwrap_or(job.cache.unwrap_or(true));
-        let step_hash = if step_cache_enabled {
-            cache_manager.as_ref().map(|cm| cm.compute_step_hash(&runs_on, &arch, step, &merged_env))
-        } else {
-            None
-        };
-
-        if let Some(ref hash) = step_hash {
-            if cache_manager.as_ref().map(|cm| cm.is_cached(hash)).unwrap_or(false) {
-                info!("[{}] [CACHED] Step {}: {}", instance_name, i + 1, resolved_name);
-                logger.log_step_cached(i, &resolved_name);
-                // Restore artifacts so downstream steps can use them
-                if let (Some(ref cm), Some(ref ws)) = (&cache_manager, &workspace_path) {
-                    let _ = cm.restore_artifacts(hash, ws);
+    loop {
+        // Each iteration: spawn every pending step whose deps are now satisfied.
+        if success {
+            let mut still_pending = vec![];
+            for idx in pending {
+                let step = &job.steps[idx];
+                let deps_met = step.depends_on.iter().all(|dep| {
+                    completed.contains(&resolve_placeholders(dep, &matrix))
+                });
+                if !deps_met {
+                    still_pending.push(idx);
+                    continue;
                 }
-                continue;
+
+                // Clone everything the task needs.
+                let step         = step.clone();
+                let matrix       = matrix.clone();
+                let iname        = instance_name.clone();
+                let runs_on      = runs_on.clone();
+                let arch         = arch.clone();
+                let backend      = Arc::clone(&backend);
+                let container_id = Arc::clone(&container_id);
+                let cache_mgr    = Arc::clone(&cache_mgr);
+                let workspace    = Arc::clone(&workspace);
+                let tool_env     = Arc::clone(&tool_env);
+                let job_env      = Arc::clone(&job_env);
+                let job_wd       = Arc::clone(&job_wd);
+                let logger       = Arc::clone(&logger);
+
+                running.spawn(async move {
+                    let step_name = resolve_placeholders(
+                        step.name.as_deref().unwrap_or("Unnamed Step"),
+                        &matrix,
+                    );
+
+                    // Merge env: toolchain → job → step
+                    let mut merged_env: HashMap<String, String> = (*tool_env).clone();
+                    if let Some(ref je) = *job_env {
+                        for (k, v) in je {
+                            merged_env.insert(k.clone(), resolve_placeholders(v, &matrix));
+                        }
+                    }
+                    if let Some(ref se) = step.env {
+                        for (k, v) in se {
+                            merged_env.insert(k.clone(), resolve_placeholders(v, &matrix));
+                        }
+                    }
+
+                    // Phase 6: cache check
+                    let step_cache_on = !force && step.cache.unwrap_or(job_cache.unwrap_or(true));
+                    let step_hash = if step_cache_on {
+                        (*cache_mgr).as_ref().map(|cm| {
+                            cm.compute_step_hash(&runs_on, &arch, &step, &merged_env)
+                        })
+                    } else {
+                        None
+                    };
+
+                    if let Some(ref hash) = step_hash {
+                        if (*cache_mgr).as_ref().map(|cm| cm.is_cached(hash)).unwrap_or(false) {
+                            info!("[{}] [CACHED] {}", iname, step_name);
+                            logger.lock().await.log_step_cached(idx, &step_name);
+                            if let (Some(cm), Some(ws)) =
+                                ((*cache_mgr).as_ref(), (*workspace).as_ref())
+                            {
+                                let _ = cm.restore_artifacts(hash, ws);
+                            }
+                            return (idx, step_name, true);
+                        }
+                    }
+
+                    info!("[{}] Running: {}", iname, step_name);
+                    logger.lock().await.log_step_start(idx, &step_name);
+
+                    let resolved_run = resolve_placeholders(&step.run, &matrix);
+                    let wd = step.working_directory.clone()
+                        .or_else(|| (*job_wd).clone())
+                        .map(|d| resolve_placeholders(&d, &matrix));
+
+                    let (ok, log_lines) = if let Some(ref cid) = *container_id {
+                        let res = backend
+                            .execute(cid, &runs_on, &arch, &resolved_run, Some(merged_env), wd)
+                            .await;
+                        (res.is_ok(), vec![])
+                    } else {
+                        match run_shell_command(&resolved_run, Some(merged_env), wd).await {
+                            Ok(lines)  => (true, lines),
+                            Err(lines) => (false, lines),
+                        }
+                    };
+
+                    logger.lock().await.log_step_done(idx, &step_name, ok, log_lines);
+
+                    if !ok {
+                        if step.allow_failure {
+                            warn!("[{}] Step failed (allowed): {}", iname, step_name);
+                        } else {
+                            error!("[{}] Step failed: {}", iname, step_name);
+                        }
+                    } else if let Some(ref hash) = step_hash {
+                        if let Some(cm) = (*cache_mgr).as_ref() {
+                            let ws_ref = (*workspace).as_ref().map(|p| p.as_path());
+                            let _ = cm.update_cache(hash, &runs_on, &arch, &step, ws_ref);
+                        }
+                    }
+
+                    (idx, step_name, ok || step.allow_failure)
+                });
             }
+            pending = still_pending;
         }
 
-        info!("[{}] Step {}/{}: {}", instance_name, i + 1, job.steps.len(), resolved_name);
-        logger.log_step_start(i, &resolved_name);
-
-        let resolved_run = resolve_placeholders(&step.run, &matrix);
-        let wd = step.working_directory.clone()
-            .or_else(|| job.working_directory.clone())
-            .map(|d| resolve_placeholders(&d, &matrix));
-
-        let (ok, log_lines) = if let Some(ref cid) = container_id {
-            let res = backend.execute(cid, &runs_on, &arch, &resolved_run, Some(merged_env), wd).await;
-            (res.is_ok(), vec![])  // sandbox output not captured; backend owns its own I/O
-        } else {
-            match run_shell_command(&resolved_run, Some(merged_env), wd).await {
-                Ok(lines)  => (true, lines),
-                Err(lines) => (false, lines),
-            }
-        };
-
-        logger.log_step_done(i, &resolved_name, ok, log_lines);
-
-        if !ok {
-            if step.allow_failure {
-                warn!("[{}] Step failed (allowed): {}", instance_name, resolved_name);
-            } else {
-                error!("[{}] Step failed: {}", instance_name, resolved_name);
+        // Nothing running: either all done or remaining steps have unresolvable deps.
+        if running.is_empty() {
+            if !pending.is_empty() {
+                warn!(
+                    "[{}] {} step(s) have unsatisfied dependencies (cycle or unknown step name).",
+                    instance_name, pending.len()
+                );
+                for idx in &pending {
+                    warn!("  step {}: depends_on {:?}", idx + 1, job.steps[*idx].depends_on);
+                }
                 success = false;
-                break;
             }
-        } else {
-            // Phase 6: Save cache entry + archive artifacts
-            if let Some(ref hash) = step_hash {
-                if let Some(ref cm) = cache_manager {
-                    let ws_ref = workspace_path.as_deref();
-                    let _ = cm.update_cache(hash, &runs_on, &arch, step, ws_ref);
+            break;
+        }
+
+        // Wait for the next step to finish.
+        match running.join_next().await {
+            Some(Ok((idx, step_name, ok))) => {
+                info!(
+                    "[{}] Step {} '{}' {}.",
+                    instance_name, idx + 1, step_name,
+                    if ok { "done" } else { "FAILED" }
+                );
+                completed.insert(step_name);
+                if !ok {
+                    success = false;
+                    running.abort_all();
                 }
             }
-            info!("[{}] Step {} done.", instance_name, i + 1);
+            Some(Err(e)) => {
+                error!("[{}] Step task panicked: {}", instance_name, e);
+                success = false;
+                running.abort_all();
+            }
+            None => break,
         }
     }
 
     // Phase 1/4 Sandbox Teardown
-    if let Some(ref cid) = container_id {
+    if let Some(ref cid) = *container_id {
         debug!("[{}] Tearing down sandbox...", instance_name);
         backend.teardown(cid).await.unwrap_or_else(|e| {
             error!("[{}] Failed to tear down lab: {}", instance_name, e);
         });
     }
 
-    logger.finalize(success);
+    logger.lock().await.finalize(success);
 
     if success {
         info!("[{}] Completed successfully!", instance_name);

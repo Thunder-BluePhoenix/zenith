@@ -31,6 +31,7 @@ pub mod firecracker;
 pub mod wasm;
 pub mod wine;
 pub mod cache;
+pub mod layer_store;
 
 use backend::Backend;
 use container::ContainerBackend;

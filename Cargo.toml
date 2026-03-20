@@ -16,6 +16,10 @@ path = "src/main.rs"
 name = "zenith-agent"
 path = "src/agent/main.rs"
 
+[[bin]]
+name = "zenith-init"
+path = "src/init/main.rs"
+
 [dependencies]
 clap      = { version = "4.4", features = ["derive"] }
 serde     = { version = "1.0", features = ["derive"] }
@@ -77,3 +81,6 @@ crossterm = "0.27"
 # Only compiled on Linux — zero cost on other platforms
 [target.'cfg(target_os = "linux")'.dependencies]
 nix = { version = "0.29", features = ["process", "mount", "sched", "fs"] }
+
+[dev-dependencies]
+tempfile = "3.10"

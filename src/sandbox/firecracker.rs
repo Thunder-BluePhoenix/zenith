@@ -79,9 +79,27 @@ impl Backend for FirecrackerBackend {
         {
             info!("[FC] Booting MicroVM for lab '{}', running: {}", lab_id, cmd);
 
-            let fc_bin  = crate::tools::ensure_firecracker().await?;
-            let kernel  = crate::tools::ensure_fc_kernel().await?;
-            let rootfs_src = crate::tools::ensure_fc_rootfs(base_os).await?;
+            let fc_bin = crate::tools::ensure_firecracker().await?;
+
+            // Phase 12: prefer the Zenith custom kernel (sub-50ms boot target)
+            // when it exists; fall back to the stock AWS vmlinux for compatibility.
+            let zenith_kernel = crate::sandbox::zenith_home().join("kernel").join("vmlinux-zenith");
+            let kernel = if zenith_kernel.exists() {
+                info!("[FC] Using Zenith custom kernel: {:?}", zenith_kernel);
+                zenith_kernel
+            } else {
+                crate::tools::ensure_fc_kernel().await?
+            };
+
+            // Phase 12: prefer the Zenith minimal rootfs when available;
+            // otherwise fall back to the standard per-OS ext4 image.
+            let zenith_rootfs = crate::sandbox::zenith_home().join("rootfs").join("zenith-minimal.tar.gz");
+            let rootfs_src = if zenith_rootfs.exists() && base_os == "zenith" {
+                info!("[FC] Using Zenith minimal rootfs");
+                zenith_rootfs
+            } else {
+                crate::tools::ensure_fc_rootfs(base_os).await?
+            };
 
             let lab_dir = super::lab_state_dir(lab_id);
 
@@ -275,22 +293,125 @@ fn wait_for_socket(socket: &Path, timeout: Duration) -> Result<()> {
 }
 
 /// Read lines from the VM's serial console (Firecracker stdout).
-/// Forward each line to the host terminal and watch for `__ZENITH_EXIT__:<code>`.
-/// Returns the command's exit code.
+///
+/// Supports two protocols:
+///
+/// **Legacy (Phase 4)**: any line prefixed `__ZENITH_EXIT__:<code>` terminates.
+///
+/// **zenith-init (Phase 12)**: lines are prefixed with:
+///   `O:<text>`   — stdout from the step command  → forward to host stdout
+///   `E:<text>`   — stderr from the step command  → forward to host stderr
+///   `EXIT:<code>` — step exit code               → return value
+///
+/// All other lines (kernel boot messages, init messages) are forwarded to
+/// the host terminal unchanged for debugging visibility.
 #[cfg(target_os = "linux")]
 fn read_serial_output(stdout: std::process::ChildStdout) -> Result<i32> {
+    use std::io::Write as _;
     let reader = BufReader::new(stdout);
     for line in reader.lines() {
         let line = line.context("Error reading serial console")?;
+
+        // Phase 12: zenith-init protocol
+        if let Some(rest) = line.strip_prefix("EXIT:") {
+            let code: i32 = rest.trim().parse().unwrap_or(1);
+            return Ok(code);
+        }
+        if let Some(rest) = line.strip_prefix("O:") {
+            println!("{}", rest);
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("E:") {
+            eprintln!("{}", rest);
+            continue;
+        }
+
+        // Phase 4 legacy: __ZENITH_EXIT__:<code>
         if let Some(rest) = line.strip_prefix("__ZENITH_EXIT__:") {
             let code: i32 = rest.trim().parse().unwrap_or(1);
             return Ok(code);
         }
-        // Forward all other lines to the user's terminal
-        println!("{}", line);
+
+        // Kernel / boot messages — show them for debugging
+        debug!("[FC serial] {}", line);
     }
-    // VM exited without our marker — treat as success (poweroff may cut it short)
     Ok(0)
+}
+
+// ─── Phase 12: VM snapshot / restore ─────────────────────────────────────────
+
+/// Snapshot a running Firecracker VM's memory + state to disk.
+///
+/// Uses the Firecracker REST API `CreateSnapshot` action.
+/// The resulting files can be passed to `restore_vm_snapshot()` to resume
+/// the VM in < 1ms instead of cold-booting.
+///
+/// Snapshot files written:
+///   `<snap_dir>/mem.snap`   — guest RAM dump
+///   `<snap_dir>/state.snap` — VM device + CPU state
+#[cfg(target_os = "linux")]
+pub fn create_vm_snapshot(socket: &Path, snap_dir: &Path) -> Result<()> {
+    std::fs::create_dir_all(snap_dir)
+        .context("Cannot create snapshot directory")?;
+
+    let mem_path   = snap_dir.join("mem.snap");
+    let state_path = snap_dir.join("state.snap");
+
+    let body = format!(
+        r#"{{"snapshot_type":"Full","snapshot_path":"{}","mem_file_path":"{}"}}"#,
+        state_path.display(),
+        mem_path.display(),
+    );
+
+    fc_api(socket, "PUT", "/snapshot/create", &body)
+        .context("Failed to create Firecracker VM snapshot")?;
+
+    info!("[FC] Snapshot saved to {:?}", snap_dir);
+    Ok(())
+}
+
+/// Restore a Firecracker VM from a snapshot created by `create_vm_snapshot()`.
+///
+/// The restored VM is paused immediately after restore; call `fc_resume_vm()`
+/// to let it continue executing. This pattern allows a "warm pool" of pre-booted
+/// VMs to be maintained and assigned to incoming workflow steps on demand.
+#[cfg(target_os = "linux")]
+pub fn restore_vm_snapshot(fc_bin: &Path, socket: &Path, snap_dir: &Path) -> Result<std::process::Child> {
+    let mem_path   = snap_dir.join("mem.snap");
+    let state_path = snap_dir.join("state.snap");
+
+    if !mem_path.exists() || !state_path.exists() {
+        return Err(anyhow::anyhow!(
+            "Snapshot files not found in {:?}. Run create_vm_snapshot() first.", snap_dir
+        ));
+    }
+
+    // Launch Firecracker in restore mode
+    let child = std::process::Command::new(fc_bin)
+        .args([
+            "--api-sock", &socket.to_string_lossy(),
+            "--config-file", "/dev/null",
+            "--restore-snapshot",
+            &format!(
+                r#"{{"snapshot_path":"{}","mem_file_path":"{}","enable_diff_snapshots":false}}"#,
+                state_path.display(), mem_path.display()
+            ),
+        ])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .context("Failed to launch Firecracker in restore mode")?;
+
+    info!("[FC] VM restored from snapshot at {:?}", snap_dir);
+    Ok(child)
+}
+
+/// Resume a paused (restored) Firecracker VM so it continues execution.
+#[cfg(target_os = "linux")]
+pub fn fc_resume_vm(socket: &Path) -> Result<()> {
+    fc_api(socket, "PATCH", "/vm", r#"{"state":"Resumed"}"#)
+        .context("Failed to resume Firecracker VM")?;
+    Ok(())
 }
 
 // ─── KVM check ───────────────────────────────────────────────────────────────

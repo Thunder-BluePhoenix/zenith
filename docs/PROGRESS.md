@@ -1,6 +1,6 @@
 # Zenith — Build Progress Tracker
 
-Last updated: 2026-03-21
+Last updated: 2026-03-21 (Phase 13 in progress)
 
 ---
 
@@ -31,8 +31,8 @@ Phase 8   [##########] 100%  Plugin System                      COMPLETE
 Phase 9   [##########] 100%  Remote Runner                      COMPLETE
 Phase 10  [##########] 100%  Cloud Runtime                      COMPLETE
 Phase 11  [##########] 100%  GUI & IDE Integration              COMPLETE
-Phase 12  [----------]   0%  Low-Level System Optimization      NOT STARTED
-Phase 13  [----------]   0%  Reproducibility Engine             NOT STARTED
+Phase 12  [####------]  40%  Low-Level System Optimization      IN PROGRESS
+Phase 13  [######----]  60%  Reproducibility Engine             IN PROGRESS
 Phase 14  [----------]   0%  Full Developer Platform            NOT STARTED
 Phase 15  [----------]   0%  OS-Level Runtime (Ultimate)        NOT STARTED
 ```
@@ -305,21 +305,69 @@ Phase 15  [----------]   0%  OS-Level Runtime (Ultimate)        NOT STARTED
 
 ---
 
-## Phases 12–15 — Platform & OS-Level Runtime
+---
 
-**Status:** NOT STARTED — see [phase_11_15.md](phase_11_15.md)
+## Phase 12 — Low-Level System Optimization
+
+**Status:** IN PROGRESS
+
+| Task | Status | File |
+|---|---|---|
+| `zenith-init` PID 1 binary — mounts pseudo-fs, reads command from virtio-serial, exec's it, reports exit, powers off | DONE | `src/init/main.rs` |
+| `[[bin]] zenith-init` target in Cargo.toml | DONE | `Cargo.toml` |
+| `ensure_zenith_kernel()` — download custom kernel to `~/.zenith/kernel/vmlinux-zenith` | DONE | `src/tools.rs` |
+| `ensure_zenith_rootfs()` — download minimal rootfs to `~/.zenith/rootfs/zenith-minimal.tar.gz` | DONE | `src/tools.rs` |
+| `LayerStore` — content-addressable rootfs layer store at `~/.zenith/layers/<sha256>/` | DONE | `src/sandbox/layer_store.rs` |
+| `LayerStore::store_layer()` — deduplicate by (os, source_url) hash | DONE | `src/sandbox/layer_store.rs` |
+| `LayerStore::extract_layer()` — unpack into per-VM directory | DONE | `src/sandbox/layer_store.rs` |
+| `LayerStore::prune()` — remove layers older than TTL | DONE | `src/sandbox/layer_store.rs` |
+| 6 layer store unit tests | DONE | `src/sandbox/layer_store.rs` |
+| `FirecrackerBackend` prefers custom kernel if present, falls back to stock | DONE | `src/sandbox/firecracker.rs` |
+| Custom Linux kernel build (`kernel/zenith.config`) | PENDING | `kernel/zenith.config` |
+| `zenith-init` vsock integration with Firecracker | PENDING | `src/sandbox/firecracker.rs` |
+| Custom rootfs < 5MB (BusyBox + musl) | PENDING | CDN artefact |
+| VM snapshot/restore for sub-10ms re-use | PENDING | `src/sandbox/firecracker.rs` |
 
 ---
 
-## What to Build Next (Phase 12 — Low-Level System Optimization)
+## Phase 13 — Reproducibility Engine
+
+**Status:** IN PROGRESS
+
+| Task | Status | File |
+|---|---|---|
+| `depends_on: Vec<String>` field on `Step` | DONE | `src/config.rs` |
+| `Derivation` model — Nix-style content-addressed build identity | DONE | `src/build/derivation.rs` |
+| `Derivation::id()` — SHA-256 of deterministic JSON | DONE | `src/build/derivation.rs` |
+| `Derivation::from_step()` + `with_deps()` | DONE | `src/build/derivation.rs` |
+| 8 derivation unit tests | DONE | `src/build/derivation.rs` |
+| `BuildStore` — content-addressable store at `~/.zenith/store/<drv-id>/` | DONE | `src/build/store.rs` |
+| `BuildStore::commit()` / `restore()` / `gc()` / `list()` | DONE | `src/build/store.rs` |
+| 5 build store unit tests | DONE | `src/build/store.rs` |
+| `pub mod build` in `src/lib.rs` | DONE | `src/lib.rs` |
+| Dependency-aware **parallel step executor** (JoinSet + dep graph) | DONE | `src/runner.rs` — `execute_single_job()` |
+| Cycle / missing dep detection with warning | DONE | `src/runner.rs` — loop exit guard |
+| `zenith build --derivation` dry-run (print derivation JSON) | DONE | `src/cli.rs`, `src/main.rs` — `print_derivations()` |
+| `zenith store list/gc/info` CLI | DONE | `src/cli.rs`, `src/main.rs` — `handle_store()` |
+| Integrate `BuildStore::commit()` into runner on step success | PENDING | `src/runner.rs` |
+| Remote binary cache (upload/download by derivation ID) | PENDING | `src/build/remote_cache.rs` |
+
+---
+
+## Phases 14–15 — Platform & OS-Level Runtime
+
+**Status:** NOT STARTED — see individual phase files
+
+---
+
+## What to Build Next (Phase 13 — Reproducibility Engine)
 
 Priority order for the next coding session:
 
-1. **Snapshot-based sandbox restore** — save VM/container state after provisioning, restore instead of re-provision per run (2–10× speedup)
-2. **Content-addressable layer cache** — deduplicate rootfs layers across OS images using SHA-256 of tar segments
-3. **Parallel step execution** — `depends-on:` field to express step dependencies, run independent steps concurrently within a job
-4. **Resource limits** — `resources: { cpu: 2, memory: 512m }` per job, enforced via cgroups (Linux) or job objects (Windows)
-5. **Incremental archive diffing** — only re-archive changed files in artifact cache, not the full directory tree
+1. **Runner → BuildStore integration** — call `BuildStore::commit()` after each successful step that has `outputs:` declared; call `restore()` at the start if the derivation is already in the store (skips execution entirely, faster than the step-hash cache)
+2. **Remote binary cache** — HTTP PUT/GET endpoints keyed by derivation ID; `zenith build --push-cache <url>` and auto-fetch on derivation hit
+3. **`zenith build --lock`** — write a `zenith.lock` file with all derivation IDs for a reproducible snapshot of the build graph
+4. **Resource limits** (Phase 12 remainder) — `resources: { cpu: 2, memory: 512m }` per job via cgroups
 
 ---
 

@@ -42,10 +42,20 @@ async fn main() -> Result<()> {
         }
 
         // ─── zenith build ────────────────────────────────────────────────────
-        cli::Commands::Build { job, no_cache } => {
-            info!("Building{}...", if no_cache { " (--no-cache)" } else { "" });
+        cli::Commands::Build { job, no_cache, derivation } => {
             let cfg = config::load_config(".zenith.yml")?;
-            runner::execute_local(cfg, job, no_cache).await?;
+            if derivation {
+                // Phase 13: dry-run — print derivation JSON for each step
+                print_derivations(&cfg, job.as_deref())?;
+            } else {
+                info!("Building{}...", if no_cache { " (--no-cache)" } else { "" });
+                runner::execute_local(cfg, job, no_cache).await?;
+            }
+        }
+
+        // ─── zenith store ────────────────────────────────────────────────────
+        cli::Commands::Store(store_cmd) => {
+            handle_store(store_cmd)?;
         }
 
         // ─── zenith cache ────────────────────────────────────────────────────
@@ -115,6 +125,11 @@ async fn main() -> Result<()> {
         // ─── zenith tui ──────────────────────────────────────────────────────
         cli::Commands::Tui => {
             tui::run()?;
+        }
+
+        // ─── zenith tools ────────────────────────────────────────────────────
+        cli::Commands::Tools(tools_cmd) => {
+            handle_tools(tools_cmd).await?;
         }
 
         // ─── zenith shell ────────────────────────────────────────────────────
@@ -436,6 +451,166 @@ async fn handle_env(cmd: cli::EnvCommands) -> Result<()> {
     Ok(())
 }
 
+// ─── Tools command handler (Phase 12) ────────────────────────────────────────
+
+async fn handle_tools(cmd: cli::ToolsCommands) -> Result<()> {
+    match cmd {
+        cli::ToolsCommands::DownloadKernel => {
+            let path = zenith::tools::ensure_zenith_kernel().await?;
+            let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            println!("Zenith kernel ready: {} ({:.1} MB)", path.display(), size as f64 / 1_048_576.0);
+        }
+        cli::ToolsCommands::DownloadRootfs => {
+            let path = zenith::tools::ensure_zenith_rootfs().await?;
+            let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            println!("Zenith rootfs ready: {} ({:.1} MB)", path.display(), size as f64 / 1_048_576.0);
+        }
+        cli::ToolsCommands::Status => {
+            let home = sandbox::zenith_home();
+            let items = [
+                ("kernel",        "vmlinux-zenith",           "Zenith custom kernel"),
+                ("kernel",        "vmlinux",                  "Stock FC kernel"),
+                ("rootfs",        "zenith-minimal.tar.gz",    "Zenith minimal rootfs"),
+                ("bin",           "firecracker",              "Firecracker VMM"),
+                ("bin",           "zenith-agent",             "Zenith remote agent"),
+            ];
+            println!("{:<30}  {:>10}  {}", "Artefact", "Size", "Path");
+            println!("{}", "-".repeat(72));
+            for (dir, file, label) in &items {
+                let path = home.join(dir).join(file);
+                if path.exists() {
+                    let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                    println!("{:<30}  {:>10}  {}", label, human_size(size), path.display());
+                } else {
+                    println!("{:<30}  {:>10}  (not downloaded)", label, "-");
+                }
+            }
+            let layer_store = sandbox::layer_store::LayerStore::new()?;
+            let layers = layer_store.list_layers();
+            if !layers.is_empty() {
+                println!("\nLayer store ({} layers, {} total):",
+                    layers.len(), human_size(layer_store.total_size_bytes()));
+                for (hash, meta) in &layers {
+                    println!("  {} — {} ({:.1} MB)",
+                        &hash[..16], meta.os, meta.size_bytes as f64 / 1_048_576.0);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+// ─── Store command handler (Phase 13) ────────────────────────────────────────
+
+fn handle_store(cmd: cli::StoreCommands) -> Result<()> {
+    let store = zenith::build::store::BuildStore::new()?;
+
+    match cmd {
+        cli::StoreCommands::List => {
+            let entries = store.list();
+            if entries.is_empty() {
+                println!("Build store is empty. Run `zenith build` to populate it.");
+                return Ok(());
+            }
+            println!("{:<18}  {:>10}  {}", "Derivation ID", "Built", "Host");
+            println!("{}", "-".repeat(60));
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            for (id, meta) in &entries {
+                let age = human_age(now.saturating_sub(meta.built_at_secs));
+                println!("{:<18}  {:>10}  {}", &id[..16], age, meta.host);
+            }
+            println!("\nTotal: {} store entries ({} on disk)",
+                entries.len(), human_size(store.total_size_bytes()));
+        }
+
+        cli::StoreCommands::Gc { days } => {
+            let max_age_secs = days * 86_400;
+            let removed = store.gc(max_age_secs)?;
+            if removed == 0 {
+                println!("Nothing to remove (no entries older than {} days).", days);
+            } else {
+                println!("GC removed {} store entries older than {} days.", removed, days);
+            }
+        }
+
+        cli::StoreCommands::Info { id } => {
+            let entries = store.list();
+            let hit = entries.iter().find(|(eid, _)| eid.starts_with(&id));
+            let Some((full_id, meta)) = hit else {
+                return Err(anyhow::anyhow!(
+                    "No store entry with ID prefix '{}'. Run `zenith store list` to see entries.", id
+                ));
+            };
+            println!("Derivation ID : {}", full_id);
+            println!("Built at      : {} ago ({})", human_age(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs()
+                    .saturating_sub(meta.built_at_secs)
+            ), meta.built_at_secs);
+            println!("Host          : {}", meta.host);
+            if let Some(drv) = store.derivation(full_id) {
+                println!("Name          : {}", drv.name);
+                println!("Command       : {}", drv.command);
+                println!("OS / Arch     : {} / {}", drv.os, drv.arch);
+                if !drv.env.is_empty() {
+                    println!("Env           : {} variable(s)", drv.env.len());
+                }
+                if !drv.inputs.is_empty() {
+                    println!("Inputs        : {} file(s) watched", drv.inputs.len());
+                }
+                if !drv.outputs.is_empty() {
+                    println!("Outputs       : {}", drv.outputs.join(", "));
+                }
+                if !drv.deps.is_empty() {
+                    println!("Deps          : {} upstream derivation(s)", drv.deps.len());
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Phase 13: dry-run — compute and print derivation JSON for each step in the job.
+fn print_derivations(cfg: &config::ZenithConfig, target_job: Option<&str>) -> Result<()> {
+    use zenith::build::derivation::Derivation;
+
+    let job = if let Some(ref jobs) = cfg.jobs {
+        let name = target_job
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| jobs.keys().next().cloned().unwrap_or_default());
+        jobs.get(&name)
+            .ok_or_else(|| anyhow::anyhow!("Job '{}' not found.", name))?
+    } else {
+        return Err(anyhow::anyhow!(
+            "No jobs block found in .zenith.yml. --derivation requires named jobs."
+        ));
+    };
+
+    let os   = job.runs_on.as_deref().unwrap_or("local");
+    let arch = job.arch.as_deref().unwrap_or(std::env::consts::ARCH);
+    let env  = job.env.clone().unwrap_or_default();
+
+    println!("Derivations for {} step(s) on {}/{}:\n", job.steps.len(), os, arch);
+
+    for (i, step) in job.steps.iter().enumerate() {
+        let drv = Derivation::from_step(step, &env, os, arch);
+        println!("── Step {} — {} ──", i + 1, drv.name);
+        println!("   ID: {}", drv.id());
+        println!("{}", drv.to_json_pretty()
+            .lines()
+            .map(|l| format!("   {}", l))
+            .collect::<Vec<_>>()
+            .join("\n"));
+        println!();
+    }
+    Ok(())
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 fn human_age(secs: u64) -> String {
@@ -443,4 +618,11 @@ fn human_age(secs: u64) -> String {
     else if secs < 3600 { format!("{}m", secs / 60) }
     else if secs < 86400 { format!("{}h", secs / 3600) }
     else { format!("{}d", secs / 86400) }
+}
+
+fn human_size(bytes: u64) -> String {
+    if bytes < 1024 { format!("{}B", bytes) }
+    else if bytes < 1_048_576 { format!("{:.1}KB", bytes as f64 / 1024.0) }
+    else if bytes < 1_073_741_824 { format!("{:.1}MB", bytes as f64 / 1_048_576.0) }
+    else { format!("{:.2}GB", bytes as f64 / 1_073_741_824.0) }
 }

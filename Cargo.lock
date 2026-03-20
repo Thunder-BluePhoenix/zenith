@@ -2861,6 +2861,7 @@ dependencies = [
  "serde_yaml",
  "sha2",
  "tar",
+ "tempfile",
  "tokio",
  "tokio-stream",
  "toml",

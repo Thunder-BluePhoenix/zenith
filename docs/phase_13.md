@@ -4,7 +4,7 @@
 
 Go deeper than Phase 6's step caching. Build a full **content-addressable build system** where every output is uniquely identified by its inputs — like Nix derivations but embedded natively in Zenith. Given the same inputs, Zenith always produces bit-for-bit identical outputs, forever.
 
-**Status: NOT STARTED**
+**Status: IN PROGRESS (60%)**
 
 ---
 
@@ -105,10 +105,13 @@ Go deeper than Phase 6's step caching. Build a full **content-addressable build 
 
 ## Verification Checklist
 
-- [ ] Same `.zenith.yml` + same source files = same derivation hash on any machine
-- [ ] `zenith build --derivation` prints a stable JSON derivation (same output on repeated runs)
-- [ ] Derivation output stored in `~/.zenith/store/<hash>/`
-- [ ] Two projects with identical build steps share a single store entry
-- [ ] `zenith build` fetches a pre-built artifact from the remote binary cache (no local compilation)
-- [ ] `zenith store gc` removes entries older than configured TTL
-- [ ] Independent steps in a job run in parallel when `depends_on` allows it
+- [x] Same `.zenith.yml` + same source files = same derivation hash on any machine
+- [x] `zenith build --derivation` prints a stable JSON derivation (same output on repeated runs)
+- [x] Derivation output stored in `~/.zenith/store/<hash>/` (`BuildStore::commit`)
+- [x] Two projects with identical build steps share a single store entry (content-addressed by SHA-256)
+- [x] `zenith store gc [days]` removes entries older than configured age
+- [x] `zenith store list` / `zenith store info <id>` — inspect store
+- [x] Independent steps in a job run in parallel when `depends_on` allows it
+- [x] Steps with unfulfilled deps wait; cycles are detected and reported as warnings
+- [ ] `zenith build` integrates `BuildStore` (skip execution on derivation hit, commit on success)
+- [ ] Remote binary cache (upload/download by derivation ID)

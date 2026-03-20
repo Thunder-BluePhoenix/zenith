@@ -33,7 +33,14 @@ pub enum Commands {
         /// Force full rebuild, skip cache
         #[arg(long, default_value_t = false)]
         no_cache: bool,
+        /// Print the derivation JSON for each step without executing (dry-run)
+        #[arg(long, default_value_t = false)]
+        derivation: bool,
     },
+
+    /// Manage the content-addressable build store (Phase 13)
+    #[command(subcommand)]
+    Store(StoreCommands),
 
     /// Manage the build cache
     #[command(subcommand)]
@@ -84,6 +91,41 @@ pub enum Commands {
 
     /// Open the terminal (TUI) dashboard (Phase 11)
     Tui,
+
+    /// Download and manage Zenith low-level tools (Phase 12)
+    #[command(subcommand)]
+    Tools(ToolsCommands),
+}
+
+// ─── Store subcommands ────────────────────────────────────────────────────────
+
+#[derive(Subcommand, Debug)]
+pub enum StoreCommands {
+    /// List all build-store entries with timestamps
+    List,
+    /// Remove store entries older than N days
+    Gc {
+        /// Maximum age in days before an entry is removed (default: 30)
+        #[arg(default_value_t = 30)]
+        days: u64,
+    },
+    /// Show the derivation that produced a store entry
+    Info {
+        /// Derivation ID hex prefix (at least 8 characters)
+        id: String,
+    },
+}
+
+// ─── Tools subcommands ────────────────────────────────────────────────────────
+
+#[derive(Subcommand, Debug)]
+pub enum ToolsCommands {
+    /// Download the Zenith custom kernel to ~/.zenith/kernel/vmlinux-zenith
+    DownloadKernel,
+    /// Download the Zenith minimal rootfs to ~/.zenith/rootfs/zenith-minimal.tar.gz
+    DownloadRootfs,
+    /// Show paths and sizes of all downloaded low-level tools
+    Status,
 }
 
 // ─── Cache subcommands ────────────────────────────────────────────────────────
