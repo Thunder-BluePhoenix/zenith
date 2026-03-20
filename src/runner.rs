@@ -7,8 +7,9 @@ use std::process::Stdio;
 use std::sync::Arc;
 use tokio::task::JoinSet;
 
-/// Execute a local workflow (Phase 1 runner supporting Sandbox isolation)
-pub async fn execute_local(config: ZenithConfig, target_job: Option<String>) -> Result<()> {
+/// Execute a local workflow.
+/// `force` — when true, bypass all cache checks (used by `zenith build --no-cache`)
+pub async fn execute_local(config: ZenithConfig, target_job: Option<String>, force: bool) -> Result<()> {
     
     // Resolve which job to run
     let (job_name, base_job) = if let Some(jobs) = config.jobs {
@@ -51,9 +52,8 @@ pub async fn execute_local(config: ZenithConfig, target_job: Option<String>) -> 
     for matrix in matrix_combinations {
         let job = base_job.clone();
         let name = job_name.clone();
-        
         set.spawn(async move {
-            execute_single_job(&name, &job, matrix).await
+            execute_single_job(&name, &job, matrix, force).await
         });
     }
 
@@ -80,11 +80,12 @@ pub async fn execute_local(config: ZenithConfig, target_job: Option<String>) -> 
     }
 }
 
-/// Execute a single job instance (potentially one node of a matrix)
+/// Execute a single job instance (potentially one node of a matrix).
 async fn execute_single_job(
-    base_name: &str, 
-    job: &Job, 
-    matrix: HashMap<String, String>
+    base_name: &str,
+    job: &Job,
+    matrix: HashMap<String, String>,
+    force: bool,
 ) -> Result<()> {
     // Generate a specific name for this matrix instance
     let instance_name = if matrix.is_empty() {
@@ -113,8 +114,15 @@ async fn execute_single_job(
 
     let is_sandboxed = (runs_on != "local" && runs_on != "host") || backend.name() != "container";
 
-    // Phase 6: Initialize Cache Manager
+    // Phase 6: Cache manager (None if cache dir can't be created)
     let cache_manager = crate::sandbox::cache::CacheManager::new().ok();
+
+    // Workspace path for artifact restore/save (local execution path)
+    let workspace_path = std::env::current_dir().ok();
+
+    // Phase 7: Resolve toolchain env (Node, Python, Go, Rust versions from config)
+    // tool_env contains a modified PATH prepended with Zenith-managed toolchain bins
+    let tool_env = crate::toolchain::resolve_toolchain_env(job).await;
 
     // Phase 1/4/5 Sandbox Provisioning using the backend abstraction
     let container_id = if is_sandboxed {
@@ -131,9 +139,9 @@ async fn execute_single_job(
     for (i, step) in job.steps.iter().enumerate() {
         let step_name = step.name.as_deref().unwrap_or("Unnamed Step");
         let resolved_name = resolve_placeholders(step_name, &matrix);
-        
-        // Merge environment variables: Job level -> Step level
-        let mut merged_env = HashMap::new();
+
+        // Merge env: job-level → step-level → toolchain PATH additions
+        let mut merged_env: HashMap<String, String> = tool_env.clone();
         if let Some(ref job_env) = job.env {
             for (k, v) in job_env {
                 merged_env.insert(k.clone(), resolve_placeholders(v, &matrix));
@@ -145,8 +153,8 @@ async fn execute_single_job(
             }
         }
 
-        // Phase 6: Performance Caching check
-        let step_cache_enabled = step.cache.unwrap_or(job.cache.unwrap_or(true));
+        // Phase 6: Compute cache hash (skipped when --no-cache / force=true)
+        let step_cache_enabled = !force && step.cache.unwrap_or(job.cache.unwrap_or(true));
         let step_hash = if step_cache_enabled {
             cache_manager.as_ref().map(|cm| cm.compute_step_hash(&runs_on, &arch, step, &merged_env))
         } else {
@@ -155,17 +163,18 @@ async fn execute_single_job(
 
         if let Some(ref hash) = step_hash {
             if cache_manager.as_ref().map(|cm| cm.is_cached(hash)).unwrap_or(false) {
-                info!("[{}] [CACHED] Step {}: {} (Skipping execution)", instance_name, i + 1, resolved_name);
+                info!("[{}] [CACHED] Step {}: {}", instance_name, i + 1, resolved_name);
+                // Restore artifacts so downstream steps can use them
+                if let (Some(ref cm), Some(ref ws)) = (&cache_manager, &workspace_path) {
+                    let _ = cm.restore_artifacts(hash, ws);
+                }
                 continue;
             }
         }
 
-        info!("[{}] Step {}: {}", instance_name, i + 1, resolved_name);
+        info!("[{}] Step {}/{}: {}", instance_name, i + 1, job.steps.len(), resolved_name);
 
-        // Resolve command placeholders
         let resolved_run = resolve_placeholders(&step.run, &matrix);
-
-        // Determine working directory (Step level overrides Job level)
         let wd = step.working_directory.clone()
             .or_else(|| job.working_directory.clone())
             .map(|d| resolve_placeholders(&d, &matrix));
@@ -176,22 +185,25 @@ async fn execute_single_job(
             run_shell_command(&resolved_run, Some(merged_env), wd).await
         };
 
-        if let Err(e) = result {
-            if step.allow_failure {
+        match result {
+            Err(e) if step.allow_failure => {
                 warn!("[{}] Step failed (allowed): {}", instance_name, e);
-            } else {
+            }
+            Err(e) => {
                 error!("[{}] Step failed: {}", instance_name, e);
                 success = false;
                 break;
             }
-        } else {
-            // Phase 6: Update cache on success
-            if let Some(ref hash) = step_hash {
-                if let Some(ref cm) = cache_manager {
-                    let _ = cm.update_cache(hash);
+            Ok(()) => {
+                // Phase 6: Save cache entry + archive artifacts
+                if let Some(ref hash) = step_hash {
+                    if let Some(ref cm) = cache_manager {
+                        let ws_ref = workspace_path.as_deref();
+                        let _ = cm.update_cache(hash, &runs_on, &arch, step, ws_ref);
+                    }
                 }
+                info!("[{}] Step {} done.", instance_name, i + 1);
             }
-            info!("[{}] Step completed successfully", instance_name);
         }
     }
 

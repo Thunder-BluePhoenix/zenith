@@ -25,8 +25,8 @@ Phase 2   [##########] 100%  Workflow Engine (Local CI)          COMPLETE
 Phase 3   [##########] 100%  Matrix Runner (Multi-OS)            COMPLETE
 Phase 4   [##########] 100%  MicroVM Backend Engine             COMPLETE
 Phase 5   [##########] 100%  Cross-OS / Cross-Arch Runtime      COMPLETE
-Phase 6   [###-------]  30%  Build & Cache System               IN PROGRESS
-Phase 7   [----------]   0%  Env & Package System               NOT STARTED
+Phase 6   [##########] 100%  Build & Cache System               COMPLETE
+Phase 7   [##########] 100%  Env & Package System               COMPLETE
 Phase 8   [----------]   0%  Plugin System                      NOT STARTED
 Phase 9   [----------]   0%  Remote Runner                      NOT STARTED
 Phase 10  [----------]   0%  Cloud Runtime                      NOT STARTED
@@ -159,7 +159,7 @@ Phase 15  [----------]   0%  OS-Level Runtime (Ultimate)        NOT STARTED
 
 ## Phase 6 — Build & Cache System
 
-**Status:** IN PROGRESS — basic step caching done. File-watching and artifact caching next.
+**Status:** COMPLETE
 
 | Task | Status | File |
 |---|---|---|
@@ -169,32 +169,40 @@ Phase 15  [----------]   0%  OS-Level Runtime (Ultimate)        NOT STARTED
 | Cache marker written on step success | DONE | `src/sandbox/cache.rs` |
 | `glob` crate added to `Cargo.toml` | DONE | `Cargo.toml` |
 | `serde_json` crate added to `Cargo.toml` | DONE | `Cargo.toml` |
-| `watch: Vec<String>` field on `Step` | TODO | `src/config.rs` |
-| File content hashing mixed into step hash | TODO | `src/sandbox/cache.rs` |
-| Cache TTL / expiry with timestamp metadata | TODO | `src/sandbox/cache.rs` |
-| `zenith cache list` command | TODO | `src/cli.rs` |
-| `zenith cache clean` command | TODO | `src/cli.rs` |
-| `outputs: Vec<String>` on `Step` | TODO | `src/config.rs` |
-| Artifact tar/restore on cache hit | TODO | `src/sandbox/cache.rs`, `src/runner.rs` |
-| `zenith build` command + `--no-cache` flag | TODO | `src/cli.rs`, `src/main.rs` |
-| Cross-job cache sharing | TODO | `src/sandbox/cache.rs` |
+| `watch: Vec<String>` field on `Step` | DONE | `src/config.rs` |
+| File content hashing mixed into step hash | DONE | `src/sandbox/cache.rs` — `hash_watched_files()` |
+| Cache TTL / expiry with JSON timestamp metadata | DONE | `src/sandbox/cache.rs` — `is_cached()`, `meta.json` |
+| `zenith cache list` command | DONE | `src/cli.rs`, `src/main.rs` — `handle_cache()` |
+| `zenith cache clean` / `zenith cache prune` | DONE | `src/main.rs` — `clean_all()`, `clean_expired()` |
+| `outputs: Vec<String>` on `Step` | DONE | `src/config.rs` |
+| Artifact tar.gz archive + restore on cache hit | DONE | `src/sandbox/cache.rs` — `archive_artifacts()`, `restore_artifacts()` |
+| `zenith build` command + `--no-cache` flag | DONE | `src/cli.rs`, `src/main.rs`, `src/runner.rs` |
+| `cache_key` manual override on `Step` | DONE | `src/config.rs`, `src/sandbox/cache.rs` |
+| Cross-job cache sharing (shared `~/.zenith/cache/`) | DONE | `src/sandbox/cache.rs` — shared dir keyed by hash |
 
 ---
 
 ## Phase 7 — Env & Package System
 
-**Status:** NOT STARTED
+**Status:** COMPLETE
 
-| Task | Status |
-|---|---|
-| `EnvConfig` struct + `env` block in `.zenith.yml` | TODO |
-| `src/toolchain/` module + `Toolchain` trait | TODO |
-| Node.js auto-download + PATH inject | TODO |
-| Python auto-download + PATH inject | TODO |
-| Go auto-download + PATH inject | TODO |
-| Rust toolchain auto-download + PATH inject | TODO |
-| `zenith env init/shell/list/clean` commands | TODO |
-| Toolchain availability inside sandbox | TODO |
+| Task | Status | File |
+|---|---|---|
+| `EnvConfig` struct + `env:` block in `.zenith.yml` | DONE | `src/config.rs` |
+| `toolchain:` per-job override in `Job` | DONE | `src/config.rs` |
+| `src/toolchain/mod.rs` + `Toolchain` trait | DONE | `src/toolchain/mod.rs` |
+| `resolve_toolchain_env()` — builds PATH prefix | DONE | `src/toolchain/mod.rs` |
+| `list_installed()` / `clean_all()` management | DONE | `src/toolchain/mod.rs` |
+| **Motto: Node.js auto-download + PATH inject** | DONE | `src/toolchain/node.rs` |
+| **Motto: Python standalone auto-download + PATH inject** | DONE | `src/toolchain/python.rs` |
+| **Motto: Go auto-download + PATH inject** | DONE | `src/toolchain/go.rs` |
+| **Motto: Rust via rustup-init — isolated CARGO_HOME** | DONE | `src/toolchain/rust_tc.rs` |
+| Toolchain PATH injected into step execution | DONE | `src/runner.rs` — `tool_env` merge |
+| `zenith env init` — install all declared toolchains | DONE | `src/main.rs` — `handle_env()` |
+| `zenith env shell` — spawn $SHELL with toolchain PATH | DONE | `src/main.rs` — `handle_env()` |
+| `zenith env list` — show installed toolchains | DONE | `src/main.rs`, `src/toolchain/mod.rs` |
+| `zenith env clean` — remove all toolchains | DONE | `src/main.rs`, `src/toolchain/mod.rs` |
+| Toolchain availability inside sandbox (PATH bind) | FUTURE | Phase 11+ (container bind-mount) |
 
 ---
 
@@ -249,23 +257,26 @@ Phase 15  [----------]   0%  OS-Level Runtime (Ultimate)        NOT STARTED
 
 ---
 
-## What to Build Next (Phase 6 Tasks)
+## What to Build Next (Phase 8 — Plugin System)
 
 Priority order for the next coding session:
 
-1. **`watch` field + file-content hashing** (`src/config.rs`, `src/sandbox/cache.rs`)
-   - Add `watch: Option<Vec<String>>` to `Step`
-   - Walk glob patterns, SHA-256 hash file contents, mix into step hash
+1. **`src/plugin/mod.rs`** — plugin discovery from `~/.zenith/plugins/`
+   - `plugin.toml` manifest schema (name, version, bin path)
+   - `PluginManager::discover()` — scan plugin dirs
 
-2. **Cache TTL + timestamp metadata** (`src/sandbox/cache.rs`)
-   - Write JSON blob on cache hit instead of `"SUCCESS"` string
-   - `is_cached()` rejects entries older than `ttl_days`
+2. **JSON-RPC over stdio protocol** (`src/plugin/rpc.rs`)
+   - `{"jsonrpc":"2.0","method":"provision","params":{...}}` request format
+   - Response reading loop, error propagation
 
-3. **`zenith cache clean` + `zenith cache list`** (`src/cli.rs`, `src/main.rs`)
+3. **`PluginBackend` implementing `Backend` trait** (`src/plugin/backend.rs`)
+   - `provision()` / `execute()` / `teardown()` → serialized to JSON-RPC subprocess calls
 
-4. **`outputs` field + artifact save/restore** (`src/config.rs`, `src/sandbox/cache.rs`, `src/runner.rs`)
+4. **`get_backend()` plugin fallthrough** (`src/sandbox/mod.rs`)
+   - After built-in backends, try `PluginManager::find(name)`
 
-5. **`zenith build --no-cache`** (`src/cli.rs`, `src/runner.rs`)
+5. **`zenith plugin install <url>` / `list` / `remove`** (`src/cli.rs`, `src/main.rs`)
+   - Download plugin binary + write `plugin.toml`
 
 ---
 

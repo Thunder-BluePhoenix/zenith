@@ -353,6 +353,11 @@ async fn download_tar_xz_dir(name: &str, url: &str, dest_parent: &Path) -> Resul
     Ok(())
 }
 
+/// Public alias so toolchain modules can reuse the same HTTP client.
+pub async fn fetch_url(url: &str) -> Result<bytes::Bytes> {
+    fetch_bytes(url).await
+}
+
 async fn fetch_bytes(url: &str) -> Result<bytes::Bytes> {
     let client = reqwest::Client::new();
     let resp = client
