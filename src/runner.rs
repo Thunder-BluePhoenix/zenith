@@ -4,6 +4,7 @@ use anyhow::{Result, Context};
 use tracing::{info, error, debug, warn};
 use tokio::process::Command;
 use std::collections::HashMap;
+use std::path::Path;
 use std::process::Stdio;
 use std::sync::Arc;
 use tokio::task::JoinSet;
@@ -157,6 +158,10 @@ async fn execute_single_job(
     let job_env      = Arc::new(job.env.clone());
     let job_wd       = Arc::new(job.working_directory.clone());
     let job_cache    = job.cache;
+    // Phase 13: content-addressable build store (None if store dir can't be created)
+    let build_store   = Arc::new(crate::build::store::BuildStore::new().ok());
+    // Phase 13: remote binary cache client (None if no remote URL configured)
+    let remote_cache  = Arc::new(crate::build::remote_cache::RemoteCacheClient::from_config());
 
     // Track which steps have not yet been started (by index).
     let mut pending: Vec<usize> = (0..job.steps.len()).collect();
@@ -194,6 +199,8 @@ async fn execute_single_job(
                 let job_env      = Arc::clone(&job_env);
                 let job_wd       = Arc::clone(&job_wd);
                 let logger       = Arc::clone(&logger);
+                let build_store  = Arc::clone(&build_store);
+                let remote_cache = Arc::clone(&remote_cache);
 
                 running.spawn(async move {
                     let step_name = resolve_placeholders(
@@ -214,7 +221,57 @@ async fn execute_single_job(
                         }
                     }
 
-                    // Phase 6: cache check
+                    // Phase 13: Derivation-based build store check (deeper than Phase 6 cache).
+                    // Only applies when the step declares outputs — otherwise there's nothing to restore.
+                    let drv = crate::build::derivation::Derivation::from_step(
+                        &step, &merged_env, &runs_on, &arch,
+                    );
+                    let drv_id = drv.id();
+                    if !step.outputs.is_empty() && !force {
+                        // 1. Local store hit
+                        if let (Some(bs), Some(ws)) =
+                            ((*build_store).as_ref(), (*workspace).as_ref())
+                        {
+                            if bs.has(&drv_id) {
+                                info!("[{}] [STORE HIT] {} ({})", iname, step_name, &drv_id[..16]);
+                                logger.lock().await.log_step_cached(idx, &step_name);
+                                if let Err(e) = bs.restore(&drv_id, ws) {
+                                    warn!("[{}] Store restore failed: {}", iname, e);
+                                }
+                                return (idx, step_name, true);
+                            }
+                        }
+                        // 2. Remote cache hit → pull into local store, then restore
+                        if let Some(ref rc) = *remote_cache {
+                            if rc.has(&drv_id).await {
+                                if let (Some(bs), Some(ws)) =
+                                    ((*build_store).as_ref(), (*workspace).as_ref())
+                                {
+                                    let outputs_dir = bs.outputs_dir(&drv_id);
+                                    match rc.pull(&drv_id, &outputs_dir).await {
+                                        Ok(()) => {
+                                            // Commit metadata so the local store knows this entry exists
+                                            if let Err(e) = bs.commit(&drv, &outputs_dir) {
+                                                warn!("[{}] Failed to commit pulled entry locally: {}", iname, e);
+                                            }
+                                            info!("[{}] [REMOTE HIT] {} ({})", iname, step_name, &drv_id[..16]);
+                                            logger.lock().await.log_step_cached(idx, &step_name);
+                                            if let Err(e) = bs.restore(&drv_id, ws) {
+                                                warn!("[{}] Store restore after pull failed: {}", iname, e);
+                                            }
+                                            return (idx, step_name, true);
+                                        }
+                                        Err(e) => {
+                                            warn!("[{}] Remote cache pull failed: {}", iname, e);
+                                            // Fall through to local execution
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Phase 6: step-hash cache check (covers steps without declared outputs)
                     let step_cache_on = !force && step.cache.unwrap_or(job_cache.unwrap_or(true));
                     let step_hash = if step_cache_on {
                         (*cache_mgr).as_ref().map(|cm| {
@@ -265,10 +322,40 @@ async fn execute_single_job(
                         } else {
                             error!("[{}] Step failed: {}", iname, step_name);
                         }
-                    } else if let Some(ref hash) = step_hash {
-                        if let Some(cm) = (*cache_mgr).as_ref() {
-                            let ws_ref = (*workspace).as_ref().map(|p| p.as_path());
-                            let _ = cm.update_cache(hash, &runs_on, &arch, &step, ws_ref);
+                    } else {
+                        // Phase 6: update step-hash cache
+                        if let Some(ref hash) = step_hash {
+                            if let Some(cm) = (*cache_mgr).as_ref() {
+                                let ws_ref = (*workspace).as_ref().map(|p| p.as_path());
+                                let _ = cm.update_cache(hash, &runs_on, &arch, &step, ws_ref);
+                            }
+                        }
+                        // Phase 13: commit declared outputs to the build store
+                        if !step.outputs.is_empty() {
+                            if let (Some(bs), Some(ws)) =
+                                ((*build_store).as_ref(), (*workspace).as_ref())
+                            {
+                                match stage_step_outputs(ws, &step.outputs) {
+                                    Ok(staging) => {
+                                        if let Err(e) = bs.commit(&drv, staging.path()) {
+                                            warn!("[{}] Store commit failed: {}", iname, e);
+                                        } else {
+                                            debug!("[{}] Committed {} to store ({})",
+                                                iname, step_name, &drv_id[..16]);
+                                            // Phase 13: push to remote binary cache if enabled
+                                            if let Some(ref rc) = *remote_cache {
+                                                if rc.push_enabled() {
+                                                    let outputs_dir = bs.outputs_dir(&drv_id);
+                                                    if let Err(e) = rc.push(&drv_id, &outputs_dir).await {
+                                                        warn!("[{}] Remote cache push failed: {}", iname, e);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Err(e) => warn!("[{}] Failed to stage outputs: {}", iname, e),
+                                }
+                            }
                         }
                     }
 
@@ -363,6 +450,55 @@ fn resolve_placeholders(text: &str, matrix: &HashMap<String, String>) -> String 
     resolved
 }
 
+
+/// Stage declared step outputs into a temporary directory, preserving their
+/// relative paths from the workspace root, so they can be committed to the
+/// content-addressable build store via `BuildStore::commit()`.
+fn stage_step_outputs(workspace: &Path, outputs: &[String]) -> anyhow::Result<tempfile::TempDir> {
+    let staging = tempfile::TempDir::new()
+        .context("Failed to create staging directory for build store commit")?;
+
+    for pattern in outputs {
+        let full_pattern = workspace.join(pattern);
+        let matches = glob::glob(&full_pattern.to_string_lossy())
+            .unwrap_or_else(|_| glob::glob("").unwrap());
+
+        for entry in matches.flatten() {
+            if !entry.exists() {
+                continue;
+            }
+            // Preserve path relative to workspace so restore puts files back correctly.
+            let relative = entry.strip_prefix(workspace)
+                .unwrap_or_else(|_| entry.as_path());
+            let dest = staging.path().join(relative);
+
+            if entry.is_dir() {
+                copy_dir_staging(&entry, &dest)?;
+            } else {
+                if let Some(parent) = dest.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::copy(&entry, &dest)?;
+            }
+        }
+    }
+    Ok(staging)
+}
+
+fn copy_dir_staging(src: &Path, dst: &Path) -> anyhow::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        if src_path.is_dir() {
+            copy_dir_staging(&src_path, &dst_path)?;
+        } else {
+            std::fs::copy(&src_path, &dst_path)?;
+        }
+    }
+    Ok(())
+}
 
 /// Runs a shell command, printing output in real time and collecting log lines.
 /// Returns Ok(lines) on success, Err(lines) on failure.

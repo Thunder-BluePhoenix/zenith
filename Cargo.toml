@@ -79,6 +79,9 @@ crossterm = "0.27"
 
 # For Linux: raw syscall bindings (namespaces, chroot, mount, unshare)
 # Only compiled on Linux — zero cost on other platforms
+# Temporary files/dirs for staging build outputs before committing to the store
+tempfile = "3.10"
+
 [target.'cfg(target_os = "linux")'.dependencies]
 nix = { version = "0.29", features = ["process", "mount", "sched", "fs"] }
 

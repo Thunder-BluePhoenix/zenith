@@ -25,6 +25,18 @@ use std::time::Duration;
 use async_trait::async_trait;
 use tracing::{info, warn, error, debug};
 
+// ─── Warm-pool ────────────────────────────────────────────────────────────────
+
+/// Per-OS snapshot directory cache.
+/// After a cold boot with zenith-init, a VM snapshot is saved here.
+/// Subsequent runs restore from the snapshot instead of cold-booting — typically
+/// < 50ms vs 500ms–2s for a cold boot.
+#[cfg(target_os = "linux")]
+lazy_static::lazy_static! {
+    static ref WARM_POOL: std::sync::Mutex<HashMap<String, PathBuf>> =
+        std::sync::Mutex::new(HashMap::new());
+}
+
 pub struct FirecrackerBackend;
 
 #[async_trait]
@@ -81,8 +93,7 @@ impl Backend for FirecrackerBackend {
 
             let fc_bin = crate::tools::ensure_firecracker().await?;
 
-            // Phase 12: prefer the Zenith custom kernel (sub-50ms boot target)
-            // when it exists; fall back to the stock AWS vmlinux for compatibility.
+            // Phase 12: prefer the Zenith custom kernel when it exists.
             let zenith_kernel = crate::sandbox::zenith_home().join("kernel").join("vmlinux-zenith");
             let kernel = if zenith_kernel.exists() {
                 info!("[FC] Using Zenith custom kernel: {:?}", zenith_kernel);
@@ -91,72 +102,131 @@ impl Backend for FirecrackerBackend {
                 crate::tools::ensure_fc_kernel().await?
             };
 
-            // Phase 12: prefer the Zenith minimal rootfs when available;
-            // otherwise fall back to the standard per-OS ext4 image.
+            // Phase 12: zenith-init protocol when using the Zenith minimal rootfs.
+            // The minimal rootfs has /zenith-init as its PID 1. The host writes the
+            // command to FC's stdin (which maps to ttyS0/the serial console in the VM).
+            // This is cleaner and more secure than embedding the command in the boot cmdline.
             let zenith_rootfs = crate::sandbox::zenith_home().join("rootfs").join("zenith-minimal.tar.gz");
-            let rootfs_src = if zenith_rootfs.exists() && base_os == "zenith" {
-                info!("[FC] Using Zenith minimal rootfs");
+            let use_zenith_init = base_os == "zenith" && zenith_rootfs.exists();
+
+            let rootfs_src = if use_zenith_init {
+                info!("[FC] Using Zenith minimal rootfs with zenith-init");
                 zenith_rootfs
             } else {
                 crate::tools::ensure_fc_rootfs(base_os).await?
             };
 
             let lab_dir = super::lab_state_dir(lab_id);
-
-            // Copy rootfs to a per-run snapshot so each execution is isolated
             let rootfs_snap = lab_dir.join("rootfs.ext4");
             std::fs::copy(&rootfs_src, &rootfs_snap)
                 .context("Failed to create rootfs snapshot")?;
 
-            // Socket for Firecracker REST API — unique per lab
             let socket_path = lab_dir.join("api.sock");
-            // Remove stale socket from any previous run
             let _ = std::fs::remove_file(&socket_path);
 
-            // Build the init= boot argument:
-            //   The kernel runs `/bin/sh -c "CMD"` as PID 1.
-            //   We append `; echo __ZENITH_EXIT__:$?` so we can detect success/failure
-            //   from the serial console output without a vsock transport.
-            let env_prefix = build_env_prefix(&env);
-            let working_dir_cd = working_directory
-                .as_deref()
-                .map(|d| format!("cd {} && ", shell_escape(d)))
-                .unwrap_or_default();
-            let full_cmd = format!(
-                "{}{}{}; echo __ZENITH_EXIT__:$?; poweroff -f",
-                env_prefix, working_dir_cd, cmd
-            );
-            let boot_args = format!(
-                "console=ttyS0 reboot=k panic=1 pci=off nomodule \
-                 init=/bin/sh -- -c \"{}\"",
-                full_cmd.replace('"', "\\\"")
-            );
+            // ── Phase 12: Warm-pool path ────────────────────────────────────
+            // If a snapshot of this OS already exists (from a previous cold boot),
+            // restore it instead of cold-booting — typically < 50ms startup.
+            let snap_base = crate::sandbox::zenith_home().join("snapshots").join(base_os);
+            let has_warm = use_zenith_init && {
+                WARM_POOL.lock().unwrap().contains_key(base_os)
+            };
 
-            // Launch Firecracker as a child process — output = serial console
-            let mut fc_process = std::process::Command::new(&fc_bin)
-                .arg("--api-sock").arg(&socket_path)
-                .arg("--log-level").arg("Warning")
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::piped())   // ttyS0 → our stdout
-                .stderr(std::process::Stdio::null())
-                .spawn()
-                .context("Failed to launch Firecracker process")?;
+            let mut fc_process = if has_warm {
+                info!("[FC] Restoring from warm snapshot for '{}'", base_os);
+                // Clone snapshot files to a per-run dir (preserves the master snapshot)
+                let snap_run = lab_dir.join("snap");
+                std::fs::create_dir_all(&snap_run)?;
+                std::fs::copy(snap_base.join("mem.snap"),   snap_run.join("mem.snap"))?;
+                std::fs::copy(snap_base.join("state.snap"), snap_run.join("state.snap"))?;
 
-            // Wait for the API socket to appear (up to 3 seconds)
-            wait_for_socket(&socket_path, Duration::from_secs(3))?;
+                let proc = restore_vm_snapshot_piped(&fc_bin, &socket_path, &snap_run)?;
+                wait_for_socket(&socket_path, Duration::from_secs(2))?;
+                fc_resume_vm(&socket_path)?;
+                proc
+            } else {
+                // ── Cold boot ───────────────────────────────────────────────
+                let (boot_args, stdin_mode) = if use_zenith_init {
+                    // zenith-init reads the command from stdin — no cmdline embedding
+                    let args = "console=ttyS0 reboot=k panic=1 pci=off nomodule \
+                                init=/zenith-init".to_string();
+                    (args, std::process::Stdio::piped())
+                } else {
+                    // Legacy: embed command in boot cmdline
+                    let env_prefix = build_env_prefix(&env);
+                    let wd_cd = working_directory.as_deref()
+                        .map(|d| format!("cd {} && ", shell_escape(d)))
+                        .unwrap_or_default();
+                    let full_cmd = format!(
+                        "{}{}{}; echo __ZENITH_EXIT__:$?; poweroff -f",
+                        env_prefix, wd_cd, cmd
+                    );
+                    let args = format!(
+                        "console=ttyS0 reboot=k panic=1 pci=off nomodule \
+                         init=/bin/sh -- -c \"{}\"",
+                        full_cmd.replace('"', "\\\"")
+                    );
+                    (args, std::process::Stdio::null())
+                };
 
-            // Configure the VM via the Firecracker REST API
-            fc_configure_vm(&socket_path, &kernel, &rootfs_snap, &boot_args, lab_id)?;
+                let proc = std::process::Command::new(&fc_bin)
+                    .arg("--api-sock").arg(&socket_path)
+                    .arg("--log-level").arg("Warning")
+                    .stdin(stdin_mode)
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::null())
+                    .spawn()
+                    .context("Failed to launch Firecracker process")?;
 
-            // Start the VM
-            fc_start_vm(&socket_path)?;
-            info!("[FC] MicroVM booted. Streaming serial console output...");
+                wait_for_socket(&socket_path, Duration::from_secs(3))?;
+                fc_configure_vm(&socket_path, &kernel, &rootfs_snap, &boot_args, lab_id)?;
+                fc_start_vm(&socket_path)?;
+                info!("[FC] MicroVM booted.");
 
-            // Stream output from the serial console and watch for the exit marker
+                if use_zenith_init {
+                    // Give zenith-init time to mount filesystems and block on read().
+                    std::thread::sleep(Duration::from_millis(120));
+                    // Pause + snapshot so subsequent runs can skip the cold boot.
+                    if let Err(e) = fc_api(&socket_path, "PATCH", "/vm", r#"{"state":"Paused"}"#) {
+                        warn!("[FC] Could not pause VM for snapshot: {}", e);
+                    } else {
+                        match create_vm_snapshot(&socket_path, &snap_base) {
+                            Ok(()) => {
+                                WARM_POOL.lock().unwrap()
+                                    .insert(base_os.to_string(), snap_base.clone());
+                                info!("[FC] Warm snapshot saved for '{}'", base_os);
+                            }
+                            Err(e) => warn!("[FC] Snapshot failed (non-fatal): {}", e),
+                        }
+                        if let Err(e) = fc_resume_vm(&socket_path) {
+                            warn!("[FC] Could not resume VM after snapshot: {}", e);
+                        }
+                    }
+                }
+
+                proc
+            };
+
+            // ── Send command to zenith-init via stdin ───────────────────────
+            // (Both warm-restore and cold-boot paths use the same dispatch.)
+            if use_zenith_init {
+                if let Some(mut stdin_pipe) = fc_process.stdin.take() {
+                    let env_prefix = build_env_prefix(&env);
+                    let wd_cd = working_directory.as_deref()
+                        .map(|d| format!("cd {} && ", shell_escape(d)))
+                        .unwrap_or_default();
+                    let full_cmd = format!("{}{}{}", env_prefix, wd_cd, cmd);
+                    if let Err(e) = writeln!(stdin_pipe, "{}", full_cmd) {
+                        error!("[FC] Failed to send command to zenith-init: {}", e);
+                    }
+                    // Closing stdin signals EOF; zenith-init stops reading.
+                }
+            }
+
+            // ── Collect output ──────────────────────────────────────────────
             let stdout = fc_process.stdout.take().expect("Firecracker stdout pipe missing");
+            info!("[FC] Streaming serial console output...");
             let exit_code = read_serial_output(stdout);
-
-            // Reap the Firecracker process
             let _ = fc_process.wait();
 
             match exit_code {
@@ -399,6 +469,44 @@ pub fn restore_vm_snapshot(fc_bin: &Path, socket: &Path, snap_dir: &Path) -> Res
         ])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
+        .spawn()
+        .context("Failed to launch Firecracker in restore mode")?;
+
+    info!("[FC] VM restored from snapshot at {:?}", snap_dir);
+    Ok(child)
+}
+
+/// Like `restore_vm_snapshot` but with stdin piped so the host can send the
+/// step command to zenith-init over the serial console.
+#[cfg(target_os = "linux")]
+fn restore_vm_snapshot_piped(
+    fc_bin: &Path,
+    socket: &Path,
+    snap_dir: &Path,
+) -> Result<std::process::Child> {
+    let mem_path   = snap_dir.join("mem.snap");
+    let state_path = snap_dir.join("state.snap");
+
+    if !mem_path.exists() || !state_path.exists() {
+        return Err(anyhow::anyhow!(
+            "Snapshot files not found in {:?}. Warm pool miss — falling back to cold boot.",
+            snap_dir
+        ));
+    }
+
+    let child = std::process::Command::new(fc_bin)
+        .args([
+            "--api-sock", &socket.to_string_lossy(),
+            "--config-file", "/dev/null",
+            "--restore-snapshot",
+            &format!(
+                r#"{{"snapshot_path":"{}","mem_file_path":"{}","enable_diff_snapshots":false}}"#,
+                state_path.display(), mem_path.display()
+            ),
+        ])
+        .stdin(std::process::Stdio::piped())   // so we can send the command
+        .stdout(std::process::Stdio::piped())  // serial console output
+        .stderr(std::process::Stdio::null())
         .spawn()
         .context("Failed to launch Firecracker in restore mode")?;
 

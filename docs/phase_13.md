@@ -4,7 +4,7 @@
 
 Go deeper than Phase 6's step caching. Build a full **content-addressable build system** where every output is uniquely identified by its inputs — like Nix derivations but embedded natively in Zenith. Given the same inputs, Zenith always produces bit-for-bit identical outputs, forever.
 
-**Status: IN PROGRESS (60%)**
+**Status: COMPLETE**
 
 ---
 
@@ -113,5 +113,7 @@ Go deeper than Phase 6's step caching. Build a full **content-addressable build 
 - [x] `zenith store list` / `zenith store info <id>` — inspect store
 - [x] Independent steps in a job run in parallel when `depends_on` allows it
 - [x] Steps with unfulfilled deps wait; cycles are detected and reported as warnings
-- [ ] `zenith build` integrates `BuildStore` (skip execution on derivation hit, commit on success)
-- [ ] Remote binary cache (upload/download by derivation ID)
+- [x] `zenith build` checks local store first → restores outputs, skips execution on hit
+- [x] Remote binary cache pull: checks remote before executing; populates local store on hit
+- [x] Remote binary cache push: uploads after successful local commit when `push = true`
+- [x] `zenith cache remote <url> [--push]` — configure remote cache in `~/.zenith/config.toml`

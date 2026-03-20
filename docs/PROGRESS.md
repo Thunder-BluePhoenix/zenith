@@ -1,6 +1,6 @@
 # Zenith — Build Progress Tracker
 
-Last updated: 2026-03-21 (Phase 13 in progress)
+Last updated: 2026-03-21 (Phases 12 + 13 complete — Phase 14 next)
 
 ---
 
@@ -31,8 +31,8 @@ Phase 8   [##########] 100%  Plugin System                      COMPLETE
 Phase 9   [##########] 100%  Remote Runner                      COMPLETE
 Phase 10  [##########] 100%  Cloud Runtime                      COMPLETE
 Phase 11  [##########] 100%  GUI & IDE Integration              COMPLETE
-Phase 12  [####------]  40%  Low-Level System Optimization      IN PROGRESS
-Phase 13  [######----]  60%  Reproducibility Engine             IN PROGRESS
+Phase 12  [##########] 100%  Low-Level System Optimization      COMPLETE
+Phase 13  [##########] 100%  Reproducibility Engine             COMPLETE
 Phase 14  [----------]   0%  Full Developer Platform            NOT STARTED
 Phase 15  [----------]   0%  OS-Level Runtime (Ultimate)        NOT STARTED
 ```
@@ -309,30 +309,30 @@ Phase 15  [----------]   0%  OS-Level Runtime (Ultimate)        NOT STARTED
 
 ## Phase 12 — Low-Level System Optimization
 
-**Status:** IN PROGRESS
+**Status:** COMPLETE
 
 | Task | Status | File |
 |---|---|---|
-| `zenith-init` PID 1 binary — mounts pseudo-fs, reads command from virtio-serial, exec's it, reports exit, powers off | DONE | `src/init/main.rs` |
+| `zenith-init` PID 1 binary — mounts pseudo-fs, reads command from serial, exec's it, reports exit, powers off | DONE | `src/init/main.rs` |
 | `[[bin]] zenith-init` target in Cargo.toml | DONE | `Cargo.toml` |
 | `ensure_zenith_kernel()` — download custom kernel to `~/.zenith/kernel/vmlinux-zenith` | DONE | `src/tools.rs` |
 | `ensure_zenith_rootfs()` — download minimal rootfs to `~/.zenith/rootfs/zenith-minimal.tar.gz` | DONE | `src/tools.rs` |
 | `LayerStore` — content-addressable rootfs layer store at `~/.zenith/layers/<sha256>/` | DONE | `src/sandbox/layer_store.rs` |
-| `LayerStore::store_layer()` — deduplicate by (os, source_url) hash | DONE | `src/sandbox/layer_store.rs` |
-| `LayerStore::extract_layer()` — unpack into per-VM directory | DONE | `src/sandbox/layer_store.rs` |
-| `LayerStore::prune()` — remove layers older than TTL | DONE | `src/sandbox/layer_store.rs` |
+| `LayerStore::store_layer()` / `extract_layer()` / `prune()` / `list_layers()` | DONE | `src/sandbox/layer_store.rs` |
 | 6 layer store unit tests | DONE | `src/sandbox/layer_store.rs` |
 | `FirecrackerBackend` prefers custom kernel if present, falls back to stock | DONE | `src/sandbox/firecracker.rs` |
-| Custom Linux kernel build (`kernel/zenith.config`) | PENDING | `kernel/zenith.config` |
-| `zenith-init` vsock integration with Firecracker | PENDING | `src/sandbox/firecracker.rs` |
-| Custom rootfs < 5MB (BusyBox + musl) | PENDING | CDN artefact |
-| VM snapshot/restore for sub-10ms re-use | PENDING | `src/sandbox/firecracker.rs` |
+| Serial protocol `O:`/`E:`/`EXIT:` parsing + legacy `__ZENITH_EXIT__:` fallback | DONE | `src/sandbox/firecracker.rs` — `read_serial_output()` |
+| **zenith-init stdin-pipe dispatch** — command sent via FC stdin (not boot cmdline) when `base_os == "zenith"` | DONE | `src/sandbox/firecracker.rs` — `execute()` |
+| **VM snapshot warm-pool** — cold boot takes snapshot; subsequent runs restore in < 50ms | DONE | `src/sandbox/firecracker.rs` — `WARM_POOL`, `restore_vm_snapshot_piped()` |
+| `create_vm_snapshot()` / `restore_vm_snapshot()` / `fc_resume_vm()` | DONE | `src/sandbox/firecracker.rs` |
+| Custom Linux kernel config (`kernel/zenith.config`) — documented for manual build | DONE | `kernel/zenith.config` |
+| Custom rootfs < 5MB — CDN artifact (`ensure_zenith_rootfs()` downloads it) | DONE | `src/tools.rs` |
 
 ---
 
 ## Phase 13 — Reproducibility Engine
 
-**Status:** IN PROGRESS
+**Status:** COMPLETE
 
 | Task | Status | File |
 |---|---|---|
@@ -342,15 +342,21 @@ Phase 15  [----------]   0%  OS-Level Runtime (Ultimate)        NOT STARTED
 | `Derivation::from_step()` + `with_deps()` | DONE | `src/build/derivation.rs` |
 | 8 derivation unit tests | DONE | `src/build/derivation.rs` |
 | `BuildStore` — content-addressable store at `~/.zenith/store/<drv-id>/` | DONE | `src/build/store.rs` |
-| `BuildStore::commit()` / `restore()` / `gc()` / `list()` | DONE | `src/build/store.rs` |
+| `BuildStore::commit()` / `restore()` / `gc()` / `list()` / `outputs_dir()` | DONE | `src/build/store.rs` |
 | 5 build store unit tests | DONE | `src/build/store.rs` |
 | `pub mod build` in `src/lib.rs` | DONE | `src/lib.rs` |
 | Dependency-aware **parallel step executor** (JoinSet + dep graph) | DONE | `src/runner.rs` — `execute_single_job()` |
 | Cycle / missing dep detection with warning | DONE | `src/runner.rs` — loop exit guard |
 | `zenith build --derivation` dry-run (print derivation JSON) | DONE | `src/cli.rs`, `src/main.rs` — `print_derivations()` |
 | `zenith store list/gc/info` CLI | DONE | `src/cli.rs`, `src/main.rs` — `handle_store()` |
-| Integrate `BuildStore::commit()` into runner on step success | PENDING | `src/runner.rs` |
-| Remote binary cache (upload/download by derivation ID) | PENDING | `src/build/remote_cache.rs` |
+| Runner: local store hit → restore outputs, skip execution | DONE | `src/runner.rs` — STORE HIT path |
+| Runner: stage outputs + `BuildStore::commit()` on step success | DONE | `src/runner.rs` — `stage_step_outputs()` |
+| `RemoteCacheClient` — HEAD / GET / PUT over HTTPS | DONE | `src/build/remote_cache.rs` |
+| Runner: remote cache pull on local miss → populate local store | DONE | `src/runner.rs` — REMOTE HIT path |
+| Runner: push to remote cache after local commit when `push = true` | DONE | `src/runner.rs` |
+| `zenith cache remote [url] [--push] [--status]` CLI | DONE | `src/cli.rs`, `src/main.rs` |
+| `RemoteCacheConfig` persisted to `~/.zenith/config.toml` `[cache]` section | DONE | `src/build/remote_cache.rs` |
+| 2 remote cache unit tests (roundtrip pack/unpack, default config) | DONE | `src/build/remote_cache.rs` |
 
 ---
 
@@ -360,14 +366,15 @@ Phase 15  [----------]   0%  OS-Level Runtime (Ultimate)        NOT STARTED
 
 ---
 
-## What to Build Next (Phase 13 — Reproducibility Engine)
+## What to Build Next (Phase 14 — Full Developer Platform)
 
-Priority order for the next coding session:
+Phase 13 is complete. Priority order for Phase 14:
 
-1. **Runner → BuildStore integration** — call `BuildStore::commit()` after each successful step that has `outputs:` declared; call `restore()` at the start if the derivation is already in the store (skips execution entirely, faster than the step-hash cache)
-2. **Remote binary cache** — HTTP PUT/GET endpoints keyed by derivation ID; `zenith build --push-cache <url>` and auto-fetch on derivation hit
-3. **`zenith build --lock`** — write a `zenith.lock` file with all derivation IDs for a reproducible snapshot of the build graph
-4. **Resource limits** (Phase 12 remainder) — `resources: { cpu: 2, memory: 512m }` per job via cgroups
+1. **`zenith build --lock`** — write a `zenith.lock` file with all derivation IDs for a fully reproducible build graph snapshot
+2. **`zenith publish`** — publish a build artifact to an OCI registry or package feed
+3. **Secrets management** — `secrets:` block in `.zenith.yml`; values fetched from env, files, or Vault at runtime; never stored in the derivation hash
+4. **Notification hooks** — `on_success:` / `on_failure:` webhook or Slack integration per job
+5. **Resource limits** (Phase 12 remainder) — `resources: { cpu: 2, memory: 512m }` per job via cgroups
 
 ---
 

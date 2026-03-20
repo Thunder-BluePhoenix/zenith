@@ -372,6 +372,31 @@ fn handle_cache(cmd: cli::CacheCommands) -> Result<()> {
             let count = cm.clean_expired()?;
             println!("Pruned {} expired cache entries.", count);
         }
+
+        cli::CacheCommands::Remote { url, push, status } => {
+            if status || url.is_none() {
+                let cfg = zenith::build::remote_cache::load_cache_config();
+                match cfg.remote {
+                    Some(ref u) => {
+                        println!("Remote cache URL : {}", u);
+                        println!("Auto-push        : {}", cfg.push);
+                    }
+                    None => {
+                        println!("No remote binary cache configured.");
+                        println!("Set one with: zenith cache remote <url>");
+                    }
+                }
+            } else if let Some(ref u) = url {
+                let cfg = zenith::build::remote_cache::RemoteCacheConfig {
+                    remote:  Some(u.clone()),
+                    push,
+                    api_key: None,
+                };
+                zenith::build::remote_cache::save_cache_config(&cfg)?;
+                println!("Remote cache set: {}", u);
+                if push { println!("Auto-push enabled."); }
+            }
+        }
     }
     Ok(())
 }

@@ -138,6 +138,17 @@ pub enum CacheCommands {
     Clean,
     /// Remove only entries older than the configured TTL
     Prune,
+    /// Configure the remote binary cache
+    Remote {
+        /// Base URL of the remote cache server (e.g. https://cache.example.com)
+        url: Option<String>,
+        /// Enable automatic push of build outputs after every successful build
+        #[arg(long, default_value_t = false)]
+        push: bool,
+        /// Show current remote cache configuration
+        #[arg(long, default_value_t = false)]
+        status: bool,
+    },
 }
 
 // ─── Lab subcommands ─────────────────────────────────────────────────────────
