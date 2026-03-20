@@ -115,6 +115,33 @@ pub enum Commands {
 
     /// Open the Zenith documentation site in the browser (Phase 14)
     Docs,
+
+    /// Manage the Zenith background daemon (Phase 15)
+    #[command(subcommand)]
+    Daemon(DaemonCommands),
+}
+
+// ─── Daemon subcommands ───────────────────────────────────────────────────────
+
+#[derive(Subcommand, Debug)]
+pub enum DaemonCommands {
+    /// Start the Zenith daemon in the background
+    Start {
+        /// Number of VMs to keep pre-warmed (default: 2)
+        #[arg(long, default_value_t = 2)]
+        pool: usize,
+    },
+    /// Stop the running daemon
+    Stop,
+    /// Show daemon status (pool sizes, active jobs, uptime)
+    Status,
+    /// Restart the daemon
+    Restart {
+        #[arg(long, default_value_t = 2)]
+        pool: usize,
+    },
+    /// Check if the hypervisor (KVM) is supported on this machine
+    HypervisorCheck,
 }
 
 // ─── Store subcommands ────────────────────────────────────────────────────────

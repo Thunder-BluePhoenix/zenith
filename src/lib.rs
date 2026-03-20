@@ -5,6 +5,8 @@ pub mod build;
 pub mod cli;
 pub mod cloud;
 pub mod config;
+pub mod daemon;
+pub mod hypervisor;
 pub mod plugin;
 pub mod remote;
 pub mod runner;

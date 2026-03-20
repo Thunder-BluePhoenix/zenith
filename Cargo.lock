@@ -3136,6 +3136,7 @@ dependencies = [
  "hex",
  "indicatif",
  "lazy_static",
+ "libc",
  "nix",
  "ratatui",
  "reqwest",

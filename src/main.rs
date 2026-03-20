@@ -7,6 +7,8 @@ use tracing_subscriber::FmtSubscriber;
 use zenith::cli;
 use zenith::cloud;
 use zenith::config;
+use zenith::daemon;
+use zenith::hypervisor;
 use zenith::plugin;
 use zenith::remote;
 use zenith::runner;
@@ -35,9 +37,24 @@ async fn main() -> Result<()> {
                     .context("Cannot read .zenith.yml")?;
                 remote::runner::execute_remote(target, &remote_cfg, &config_yaml, job.as_deref()).await?;
             } else {
-                info!("Running workflow{}...", if no_cache { " (--no-cache)" } else { "" });
-                let cfg = config::load_config(".zenith.yml")?;
-                runner::execute_local(cfg, job, no_cache).await?;
+                // Phase 15: try the daemon first for near-zero startup latency
+                if !no_cache && daemon::is_running() {
+                    let config_yaml = std::fs::read_to_string(".zenith.yml")
+                        .context("Cannot read .zenith.yml")?;
+                    match daemon::client::try_run_via_daemon(&config_yaml, job.as_deref(), no_cache).await {
+                        Ok(true)  => { /* success */ }
+                        Ok(false) => anyhow::bail!("Job failed (via daemon)"),
+                        Err(e) => {
+                            tracing::warn!("Daemon unreachable ({}), falling back to standalone.", e);
+                            let cfg = config::load_config(".zenith.yml")?;
+                            runner::execute_local(cfg, job, no_cache).await?;
+                        }
+                    }
+                } else {
+                    info!("Running workflow{}...", if no_cache { " (--no-cache)" } else { "" });
+                    let cfg = config::load_config(".zenith.yml")?;
+                    runner::execute_local(cfg, job, no_cache).await?;
+                }
             }
         }
 
@@ -166,6 +183,11 @@ async fn main() -> Result<()> {
         // ─── zenith docs ─────────────────────────────────────────────────────
         cli::Commands::Docs => {
             open_docs()?;
+        }
+
+        // ─── zenith daemon ───────────────────────────────────────────────────
+        cli::Commands::Daemon(daemon_cmd) => {
+            handle_daemon(daemon_cmd).await?;
         }
     }
 
@@ -661,6 +683,131 @@ fn print_derivations(cfg: &config::ZenithConfig, target_job: Option<&str>) -> Re
             .collect::<Vec<_>>()
             .join("\n"));
         println!();
+    }
+    Ok(())
+}
+
+// ─── Daemon command handler (Phase 15) ───────────────────────────────────────
+
+async fn handle_daemon(cmd: cli::DaemonCommands) -> Result<()> {
+    match cmd {
+        cli::DaemonCommands::Start { pool } => {
+            if daemon::is_running() {
+                println!("Daemon is already running.");
+                println!("Run `zenith daemon status` for details.");
+                return Ok(());
+            }
+
+            // Locate the zenith-daemon binary (same directory as the current binary)
+            let daemon_bin = std::env::current_exe()?
+                .parent()
+                .map(|p| p.join(if cfg!(windows) { "zenith-daemon.exe" } else { "zenith-daemon" }))
+                .filter(|p| p.exists())
+                .ok_or_else(|| anyhow::anyhow!(
+                    "zenith-daemon binary not found next to zenith binary.\n\
+                     Build with `cargo build` to produce it."
+                ))?;
+
+            // Spawn as detached background process
+            let mut cmd = std::process::Command::new(&daemon_bin);
+            cmd.arg(pool.to_string());
+
+            #[cfg(unix)]
+            {
+                use std::os::unix::process::CommandExt;
+                // Detach from terminal: redirect stdio to /dev/null
+                cmd.stdin(std::process::Stdio::null())
+                   .stdout(std::process::Stdio::null())
+                   .stderr(std::process::Stdio::null());
+            }
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                cmd.stdin(std::process::Stdio::null())
+                   .stdout(std::process::Stdio::null())
+                   .stderr(std::process::Stdio::null())
+                   .creation_flags(0x00000008); // DETACHED_PROCESS
+            }
+
+            let child = cmd.spawn()
+                .context("Failed to spawn zenith-daemon")?;
+
+            println!("Daemon started (PID {}).", child.id());
+            println!("Pool target: {} pre-warmed VM(s).", pool);
+            println!("Use `zenith daemon status` to monitor.");
+        }
+
+        cli::DaemonCommands::Stop => {
+            if !daemon::is_running() {
+                println!("Daemon is not running.");
+                return Ok(());
+            }
+            match daemon::client::shutdown().await {
+                Ok(()) => println!("Daemon shutdown requested."),
+                Err(e) => println!("Shutdown failed: {}. The daemon may have already exited.", e),
+            }
+            // Remove PID file
+            let _ = std::fs::remove_file(daemon::pid_file());
+        }
+
+        cli::DaemonCommands::Status => {
+            if !daemon::is_running() {
+                println!("Daemon is not running.");
+                println!("Start with: zenith daemon start");
+                return Ok(());
+            }
+            match daemon::client::ping().await {
+                Ok(zenith::daemon::protocol::DaemonResponse::Pong { version, pool_ready, pool_target, active_jobs }) => {
+                    println!("Daemon is running.");
+                    println!("  Version     : {}", version);
+                    println!("  Pool ready  : {}/{}", pool_ready, pool_target);
+                    println!("  Active jobs : {}", active_jobs);
+                }
+                Ok(zenith::daemon::protocol::DaemonResponse::StatusInfo { version, pool_ready, pool_target, active_jobs, uptime_secs }) => {
+                    println!("Daemon is running.");
+                    println!("  Version     : {}", version);
+                    println!("  Uptime      : {}", human_age(uptime_secs));
+                    println!("  Pool ready  : {}/{}", pool_ready, pool_target);
+                    println!("  Active jobs : {}", active_jobs);
+                }
+                Ok(other) => println!("Unexpected response: {:?}", other),
+                Err(e) => println!("Cannot connect to daemon: {}", e),
+            }
+        }
+
+        cli::DaemonCommands::Restart { pool } => {
+            if daemon::is_running() {
+                println!("Stopping existing daemon...");
+                let _ = daemon::client::shutdown().await;
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                let _ = std::fs::remove_file(daemon::pid_file());
+            }
+            // Inline the Start logic to avoid async recursion
+            let daemon_bin = std::env::current_exe()?
+                .parent()
+                .map(|p| p.join(if cfg!(windows) { "zenith-daemon.exe" } else { "zenith-daemon" }))
+                .filter(|p| p.exists())
+                .ok_or_else(|| anyhow::anyhow!("zenith-daemon binary not found next to zenith binary."))?;
+            let mut cmd = std::process::Command::new(&daemon_bin);
+            cmd.arg(pool.to_string())
+               .stdin(std::process::Stdio::null())
+               .stdout(std::process::Stdio::null())
+               .stderr(std::process::Stdio::null());
+            let child = cmd.spawn().context("Failed to spawn zenith-daemon")?;
+            println!("Daemon restarted (PID {}).", child.id());
+        }
+
+        cli::DaemonCommands::HypervisorCheck => {
+            if hypervisor::is_supported() {
+                println!("KVM hypervisor: AVAILABLE");
+                println!("The Zenith custom VMM is supported on this machine.");
+                println!("Start the daemon to activate the pre-warmed VM pool: zenith daemon start");
+            } else {
+                println!("KVM hypervisor: UNAVAILABLE");
+                println!("Reason: {}", hypervisor::unavailable_reason());
+                println!("Zenith will use the Firecracker or container backend instead.");
+            }
+        }
     }
     Ok(())
 }
