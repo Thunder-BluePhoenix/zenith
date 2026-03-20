@@ -47,6 +47,9 @@ glob = "0.3"
 # JSON for cache metadata and plugin protocol
 serde_json = "1.0"
 
+# TOML for plugin.toml manifest parsing (Phase 8)
+toml = "0.8"
+
 # For Linux: raw syscall bindings (namespaces, chroot, mount, unshare)
 # Only compiled on Linux — zero cost on other platforms
 [target.'cfg(target_os = "linux")'.dependencies]

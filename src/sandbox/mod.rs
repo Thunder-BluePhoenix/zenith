@@ -40,12 +40,19 @@ use wine::WineBackend;
 
 /// Factory to get the requested isolation engine.
 /// "You install Zenith. Zenith installs everything else."
+/// Falls through to the plugin registry for any unknown backend name.
 pub fn get_backend(name: &str) -> Box<dyn Backend> {
     match name {
         "firecracker" | "fc" => Box::new(FirecrackerBackend),
         "wasm"               => Box::new(WasmBackend),
         "wine"               => Box::new(WineBackend),
-        _                    => Box::new(ContainerBackend),
+        _ => {
+            // Try plugin registry before falling back to the container backend
+            if let Some(manifest) = crate::plugin::registry::find_plugin(name) {
+                return Box::new(crate::plugin::client::PluginBackend::new(manifest));
+            }
+            Box::new(ContainerBackend)
+        }
     }
 }
 

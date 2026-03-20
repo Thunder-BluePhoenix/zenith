@@ -62,6 +62,10 @@ pub enum Commands {
         #[arg(long)]
         lab: Option<String>,
     },
+
+    /// Manage Zenith plugins (Phase 8)
+    #[command(subcommand)]
+    Plugin(PluginCommands),
 }
 
 // ─── Cache subcommands ────────────────────────────────────────────────────────
@@ -120,6 +124,29 @@ pub enum EnvCommands {
     List,
     /// Remove all cached toolchain binaries
     Clean,
+}
+
+// ─── Plugin subcommands ───────────────────────────────────────────────────────
+
+#[derive(Subcommand, Debug)]
+pub enum PluginCommands {
+    /// List all installed plugins
+    List,
+    /// Install a plugin from a local directory path
+    Install {
+        /// Path to the plugin directory containing plugin.toml
+        path: String,
+    },
+    /// Remove an installed plugin
+    Remove {
+        /// Plugin name (as declared in plugin.toml)
+        name: String,
+    },
+    /// Show full details of an installed plugin
+    Info {
+        /// Plugin name
+        name: String,
+    },
 }
 
 // ─── Matrix action ────────────────────────────────────────────────────────────

@@ -27,7 +27,7 @@ Phase 4   [##########] 100%  MicroVM Backend Engine             COMPLETE
 Phase 5   [##########] 100%  Cross-OS / Cross-Arch Runtime      COMPLETE
 Phase 6   [##########] 100%  Build & Cache System               COMPLETE
 Phase 7   [##########] 100%  Env & Package System               COMPLETE
-Phase 8   [----------]   0%  Plugin System                      NOT STARTED
+Phase 8   [##########] 100%  Plugin System                      COMPLETE
 Phase 9   [----------]   0%  Remote Runner                      NOT STARTED
 Phase 10  [----------]   0%  Cloud Runtime                      NOT STARTED
 Phase 11  [----------]   0%  GUI & IDE Integration              NOT STARTED
@@ -208,17 +208,24 @@ Phase 15  [----------]   0%  OS-Level Runtime (Ultimate)        NOT STARTED
 
 ## Phase 8 — Plugin System
 
-**Status:** NOT STARTED
+**Status:** COMPLETE
 
-| Task | Status |
-|---|---|
-| `src/plugin/` module + `plugin.toml` manifest | TODO |
-| Plugin discovery (`~/.zenith/plugins/`) | TODO |
-| JSON-RPC over stdio protocol | TODO |
-| `PluginBackend` implementing `Backend` trait | TODO |
-| `get_backend()` plugin fallthrough | TODO |
-| `zenith plugin install/list/remove` | TODO |
-| Reference plugin example | TODO |
+| Task | Status | File |
+|---|---|---|
+| Architecture decision: external process + JSON-RPC | DONE | `src/plugin/mod.rs` — design comment |
+| `PluginManifest` struct + `plugin.toml` parsing | DONE | `src/plugin/manifest.rs` |
+| Plugin discovery (`~/.zenith/plugins/`) | DONE | `src/plugin/registry.rs` — `discover_plugins()` |
+| `find_plugin(name)` lookup | DONE | `src/plugin/registry.rs` |
+| `install_from_path()` — copy + validate + smoke test | DONE | `src/plugin/registry.rs` |
+| `remove_plugin(name)` | DONE | `src/plugin/registry.rs` |
+| `RpcRequest` / `RpcResponse` types | DONE | `src/plugin/protocol.rs` |
+| `PluginBackend` implementing `Backend` trait | DONE | `src/plugin/client.rs` |
+| JSON-RPC call over stdio (spawn → write → read → kill) | DONE | `src/plugin/client.rs` — `call()` |
+| `smoke_test()` — calls `name` RPC on install | DONE | `src/plugin/client.rs` |
+| `get_backend()` plugin fallthrough | DONE | `src/sandbox/mod.rs` |
+| `zenith plugin list/install/remove/info` CLI | DONE | `src/cli.rs`, `src/main.rs` |
+| Reference plugin in Rust | DONE | `examples/plugin-example/` |
+| Plugin authoring guide | DONE | `docs/plugin_authoring.md` |
 
 ---
 
@@ -257,26 +264,27 @@ Phase 15  [----------]   0%  OS-Level Runtime (Ultimate)        NOT STARTED
 
 ---
 
-## What to Build Next (Phase 8 — Plugin System)
+## What to Build Next (Phase 9 — Remote Runner)
 
 Priority order for the next coding session:
 
-1. **`src/plugin/mod.rs`** — plugin discovery from `~/.zenith/plugins/`
-   - `plugin.toml` manifest schema (name, version, bin path)
-   - `PluginManager::discover()` — scan plugin dirs
+1. **`RemoteConfig` + `~/.zenith/remotes.toml`** (`src/config.rs`)
+   - `[[remotes]]` entries: name, host, user, key_path
+   - `zenith remote add <name> <host>` writes the entry
 
-2. **JSON-RPC over stdio protocol** (`src/plugin/rpc.rs`)
-   - `{"jsonrpc":"2.0","method":"provision","params":{...}}` request format
-   - Response reading loop, error propagation
+2. **SSH transport** (`src/remote/ssh.rs`)
+   - Connect via `openssh` crate, run commands, stream stdout back
+   - Upload project as tar.gz, extract on remote
 
-3. **`PluginBackend` implementing `Backend` trait** (`src/plugin/backend.rs`)
-   - `provision()` / `execute()` / `teardown()` → serialized to JSON-RPC subprocess calls
+3. **`zenith-agent` binary target** (`src/bin/agent.rs`)
+   - Listens for workflow tasks over stdin (JSON)
+   - Runs `execute_local()` on the remote machine
+   - Streams logs back line by line
 
-4. **`get_backend()` plugin fallthrough** (`src/sandbox/mod.rs`)
-   - After built-in backends, try `PluginManager::find(name)`
+4. **`--remote <name>` flag on `zenith run`** (`src/main.rs`)
+   - Already has the placeholder — wire it to the SSH transport
 
-5. **`zenith plugin install <url>` / `list` / `remove`** (`src/cli.rs`, `src/main.rs`)
-   - Download plugin binary + write `plugin.toml`
+5. **`zenith remote add/list/remove/status`** (`src/cli.rs`, `src/main.rs`)
 
 ---
 
@@ -293,6 +301,7 @@ Priority order for the next coding session:
 | 6 | [phase_6.md](phase_6.md) |
 | 7 | [phase_7.md](phase_7.md) |
 | 8 | [phase_8.md](phase_8.md) |
+| Plugin authoring | [plugin_authoring.md](plugin_authoring.md) |
 | 9–10 | [phase_9_10.md](phase_9_10.md) |
 | 11–15 | [phase_11_15.md](phase_11_15.md) |
 | Motto | [motto.md](motto.md) |

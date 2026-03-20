@@ -1,0 +1,6 @@
+[plugin]
+name        = "example-backend"
+version     = "0.1.0"
+type        = "backend"
+entrypoint  = "zenith-plugin-example"
+description = "Reference plugin: runs commands locally via std::process::Command"

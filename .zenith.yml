@@ -1,6 +1,9 @@
+version: "1"
+
 jobs:
-  wasm_test:
-    backend: wasm
+  plugin_test:
+    runs_on: local
+    backend: example-backend
     steps:
-      - name: Verify Wasm Skeleton (Modified)
-        run: hello_world.wasm --version
+      - name: Hello via plugin
+        run: echo "Executed through the example-backend plugin!"

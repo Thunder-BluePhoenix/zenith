@@ -44,3 +44,8 @@ test_output.txt
 # OS cruft
 Thumbs.db
 Desktop.ini
+
+# Plugin example compiled binaries (keep source, not built artifacts)
+examples/plugin-example/target/
+examples/plugin-example/zenith-plugin-example
+examples/plugin-example/zenith-plugin-example.exe

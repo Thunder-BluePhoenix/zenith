@@ -5,6 +5,7 @@ use tracing_subscriber::FmtSubscriber;
 
 mod cli;
 mod config;
+mod plugin;
 mod runner;
 mod sandbox;
 mod toolchain;
@@ -85,6 +86,11 @@ async fn main() -> Result<()> {
             }
         }
 
+        // ─── zenith plugin ───────────────────────────────────────────────────
+        cli::Commands::Plugin(plugin_cmd) => {
+            handle_plugin(plugin_cmd).await?;
+        }
+
         // ─── zenith shell ────────────────────────────────────────────────────
         cli::Commands::Shell { lab } => {
             if let Some(os) = lab {
@@ -97,6 +103,75 @@ async fn main() -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+// ─── Plugin command handler ───────────────────────────────────────────────────
+
+async fn handle_plugin(cmd: cli::PluginCommands) -> Result<()> {
+    match cmd {
+        cli::PluginCommands::List => {
+            let plugins = plugin::registry::discover_plugins();
+            if plugins.is_empty() {
+                println!("No plugins installed. Use `zenith plugin install <path>` to add one.");
+                return Ok(());
+            }
+            println!("{:<24}  {:<10}  {:<12}  {}", "Name", "Version", "Type", "Description");
+            println!("{}", "-".repeat(72));
+            for p in &plugins {
+                println!("{:<24}  {:<10}  {:<12}  {}",
+                    p.name, p.version, p.plugin_type.to_string(),
+                    p.description.as_deref().unwrap_or("-"));
+            }
+            println!("\nTotal: {} plugin(s)", plugins.len());
+        }
+
+        cli::PluginCommands::Install { path } => {
+            let src = std::path::Path::new(&path);
+            if !src.is_dir() {
+                return Err(anyhow::anyhow!(
+                    "'{}' is not a directory. Provide the path to a plugin directory containing plugin.toml.",
+                    path
+                ));
+            }
+            info!("Installing plugin from {:?}...", src);
+            let manifest = plugin::registry::install_from_path(src)?;
+
+            // Smoke test: spawn the plugin and call `name`
+            print!("Running smoke test... ");
+            match plugin::client::smoke_test(&manifest).await {
+                Ok(reported_name) => {
+                    println!("OK (plugin reports name: '{}')", reported_name);
+                }
+                Err(e) => {
+                    println!("WARNING — smoke test failed: {}", e);
+                    println!("Plugin installed but may not work correctly.");
+                }
+            }
+
+            println!("Plugin '{}' v{} installed successfully.", manifest.name, manifest.version);
+            println!("Use `backend: {}` in .zenith.yml to activate it.", manifest.name);
+        }
+
+        cli::PluginCommands::Remove { name } => {
+            plugin::registry::remove_plugin(&name)?;
+            println!("Plugin '{}' removed.", name);
+        }
+
+        cli::PluginCommands::Info { name } => {
+            let Some(p) = plugin::registry::find_plugin(&name) else {
+                return Err(anyhow::anyhow!("Plugin '{}' is not installed.", name));
+            };
+            println!("Name:        {}", p.name);
+            println!("Version:     {}", p.version);
+            println!("Type:        {}", p.plugin_type);
+            println!("Entrypoint:  {:?}", p.entrypoint_path());
+            println!("Install dir: {:?}", p.install_dir);
+            if let Some(desc) = &p.description {
+                println!("Description: {}", desc);
+            }
+        }
+    }
     Ok(())
 }
 
