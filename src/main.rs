@@ -1,15 +1,17 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
-mod cli;
-mod config;
-mod plugin;
-mod runner;
-mod sandbox;
-mod toolchain;
-mod tools;
+// All modules are defined in lib.rs; re-import them here for convenience.
+use zenith::cli;
+use zenith::cloud;
+use zenith::config;
+use zenith::plugin;
+use zenith::remote;
+use zenith::runner;
+use zenith::sandbox;
+use zenith::toolchain;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -26,8 +28,10 @@ async fn main() -> Result<()> {
         // ─── zenith run ──────────────────────────────────────────────────────
         cli::Commands::Run { job, no_cache, remote } => {
             if let Some(ref target) = remote {
-                info!("Remote execution on '{}' (Phase 9 — not yet implemented).", target);
-                println!("Remote runner coming in Phase 9. Run locally for now.");
+                let remote_cfg = remote::config::get_remote(target)?;
+                let config_yaml = std::fs::read_to_string(".zenith.yml")
+                    .context("Cannot read .zenith.yml")?;
+                remote::runner::execute_remote(target, &remote_cfg, &config_yaml, job.as_deref()).await?;
             } else {
                 info!("Running workflow{}...", if no_cache { " (--no-cache)" } else { "" });
                 let cfg = config::load_config(".zenith.yml")?;
@@ -86,6 +90,16 @@ async fn main() -> Result<()> {
             }
         }
 
+        // ─── zenith remote ───────────────────────────────────────────────────
+        cli::Commands::Remote(remote_cmd) => {
+            handle_remote(remote_cmd).await?;
+        }
+
+        // ─── zenith cloud ────────────────────────────────────────────────────
+        cli::Commands::Cloud(cloud_cmd) => {
+            handle_cloud(cloud_cmd).await?;
+        }
+
         // ─── zenith plugin ───────────────────────────────────────────────────
         cli::Commands::Plugin(plugin_cmd) => {
             handle_plugin(plugin_cmd).await?;
@@ -103,6 +117,123 @@ async fn main() -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+// ─── Remote command handler ───────────────────────────────────────────────────
+
+async fn handle_remote(cmd: cli::RemoteCommands) -> Result<()> {
+    match cmd {
+        cli::RemoteCommands::Add { name, host, port, key } => {
+            remote::config::add_remote(&name, &host, port.unwrap_or(22), key)?;
+            println!("Remote '{}' added ({}).", name, host);
+            println!("Test with: zenith remote status {}", name);
+        }
+
+        cli::RemoteCommands::List => {
+            let remotes = remote::config::list_remotes()?;
+            if remotes.is_empty() {
+                println!("No remotes registered. Use `zenith remote add <name> <user@host>`.");
+                return Ok(());
+            }
+            println!("{:<20}  {:<30}  {}", "Name", "Host", "Port");
+            println!("{}", "-".repeat(60));
+            for (name, r) in &remotes {
+                println!("{:<20}  {:<30}  {}", name, r.host, r.port);
+            }
+        }
+
+        cli::RemoteCommands::Remove { name } => {
+            remote::config::remove_remote(&name)?;
+            println!("Remote '{}' removed.", name);
+        }
+
+        cli::RemoteCommands::Status { name } => {
+            let r = remote::config::get_remote(&name)?;
+            print!("Pinging '{}' ({})... ", name, r.host);
+            match remote::transport::ping(&r).await {
+                Ok(arch) => println!("OK (arch: {})", arch),
+                Err(e)   => println!("FAILED\n  {}", e),
+            }
+        }
+    }
+    Ok(())
+}
+
+// ─── Cloud command handler ────────────────────────────────────────────────────
+
+async fn handle_cloud(cmd: cli::CloudCommands) -> Result<()> {
+    match cmd {
+        cli::CloudCommands::Login { api_key } => {
+            cloud::client::save_api_key(&api_key)?;
+            println!("API key saved. You can now run `zenith cloud run`.");
+        }
+
+        cli::CloudCommands::Logout => {
+            cloud::client::clear_api_key()?;
+            println!("Logged out — API key removed from ~/.zenith/config.toml.");
+        }
+
+        cli::CloudCommands::Run { job, watch } => {
+            let cfg = cloud::client::load_cloud_config();
+            let client = cloud::client::CloudClient::new(cfg);
+
+            let config_yaml = std::fs::read_to_string(".zenith.yml")
+                .context("Cannot read .zenith.yml")?;
+            let local_dir = std::env::current_dir()?;
+            let tarball = cloud::packager::package_project(&local_dir)?;
+
+            info!("Submitting workflow to Zenith cloud ({} bytes)...", tarball.len());
+            let run_id = client.submit_run(&config_yaml, tarball, job.as_deref()).await?;
+            println!("Run submitted: {}", run_id);
+
+            if watch {
+                println!("Streaming logs (Ctrl+C to detach)...");
+                client.stream_logs(&run_id).await?;
+            } else {
+                println!("Track with: zenith cloud status {}", run_id);
+                println!("Logs with:  zenith cloud logs {}", run_id);
+            }
+        }
+
+        cli::CloudCommands::Status { run_id } => {
+            let cfg = cloud::client::load_cloud_config();
+            let client = cloud::client::CloudClient::new(cfg);
+            let info = client.get_status(&run_id).await?;
+            println!("Run:     {}", info.run_id);
+            println!("Status:  {}", info.status);
+            println!("Created: {}", info.created_at);
+            println!("Updated: {}", info.updated_at);
+        }
+
+        cli::CloudCommands::Logs { run_id } => {
+            let cfg = cloud::client::load_cloud_config();
+            let client = cloud::client::CloudClient::new(cfg);
+            client.stream_logs(&run_id).await?;
+        }
+
+        cli::CloudCommands::Cancel { run_id } => {
+            let cfg = cloud::client::load_cloud_config();
+            let client = cloud::client::CloudClient::new(cfg);
+            client.cancel_run(&run_id).await?;
+            println!("Run '{}' cancelled.", run_id);
+        }
+
+        cli::CloudCommands::List => {
+            let cfg = cloud::client::load_cloud_config();
+            let client = cloud::client::CloudClient::new(cfg);
+            let runs = client.list_runs().await?;
+            if runs.is_empty() {
+                println!("No cloud runs found.");
+                return Ok(());
+            }
+            println!("{:<36}  {:<12}  {}", "Run ID", "Status", "Created");
+            println!("{}", "-".repeat(70));
+            for r in &runs {
+                println!("{:<36}  {:<12}  {}", r.run_id, r.status, r.created_at);
+            }
+        }
+    }
     Ok(())
 }
 

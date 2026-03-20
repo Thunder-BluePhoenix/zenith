@@ -66,6 +66,14 @@ pub enum Commands {
     /// Manage Zenith plugins (Phase 8)
     #[command(subcommand)]
     Plugin(PluginCommands),
+
+    /// Manage remote SSH build machines (Phase 9)
+    #[command(subcommand)]
+    Remote(RemoteCommands),
+
+    /// Run workflows on the Zenith cloud service (Phase 10)
+    #[command(subcommand)]
+    Cloud(CloudCommands),
 }
 
 // ─── Cache subcommands ────────────────────────────────────────────────────────
@@ -147,6 +155,71 @@ pub enum PluginCommands {
         /// Plugin name
         name: String,
     },
+}
+
+// ─── Remote subcommands ───────────────────────────────────────────────────────
+
+#[derive(Subcommand, Debug)]
+pub enum RemoteCommands {
+    /// Register a remote SSH build machine
+    Add {
+        /// Short name for the remote (e.g., build-server)
+        name: String,
+        /// SSH target in user@host format
+        host: String,
+        /// SSH port (default: 22)
+        #[arg(long)]
+        port: Option<u16>,
+        /// Path to SSH private key (optional, uses SSH agent if omitted)
+        #[arg(long)]
+        key: Option<String>,
+    },
+    /// List all registered remotes
+    List,
+    /// Unregister a remote
+    Remove {
+        name: String,
+    },
+    /// Ping a remote and show its status
+    Status {
+        name: String,
+    },
+}
+
+// ─── Cloud subcommands ────────────────────────────────────────────────────────
+
+#[derive(Subcommand, Debug)]
+pub enum CloudCommands {
+    /// Authenticate with the Zenith cloud service
+    Login {
+        /// API key from https://zenith.run/settings
+        api_key: String,
+    },
+    /// Remove stored cloud credentials
+    Logout,
+    /// Submit the current workflow to Zenith cloud
+    Run {
+        /// Run a specific named job
+        #[arg(short, long)]
+        job: Option<String>,
+        /// Stream logs until the run completes
+        #[arg(long, default_value_t = false)]
+        watch: bool,
+    },
+    /// Show the status of a cloud run
+    Status {
+        run_id: String,
+    },
+    /// Stream logs for a cloud run
+    Logs {
+        run_id: String,
+    },
+    /// Cancel a running cloud job
+    Cancel {
+        run_id: String,
+    },
+    /// List recent cloud runs
+    List,
 }
 
 // ─── Matrix action ────────────────────────────────────────────────────────────

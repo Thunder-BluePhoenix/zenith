@@ -28,8 +28,8 @@ Phase 5   [##########] 100%  Cross-OS / Cross-Arch Runtime      COMPLETE
 Phase 6   [##########] 100%  Build & Cache System               COMPLETE
 Phase 7   [##########] 100%  Env & Package System               COMPLETE
 Phase 8   [##########] 100%  Plugin System                      COMPLETE
-Phase 9   [----------]   0%  Remote Runner                      NOT STARTED
-Phase 10  [----------]   0%  Cloud Runtime                      NOT STARTED
+Phase 9   [##########] 100%  Remote Runner                      COMPLETE
+Phase 10  [##########] 100%  Cloud Runtime                      COMPLETE
 Phase 11  [----------]   0%  GUI & IDE Integration              NOT STARTED
 Phase 12  [----------]   0%  Low-Level System Optimization      NOT STARTED
 Phase 13  [----------]   0%  Reproducibility Engine             NOT STARTED
@@ -231,30 +231,41 @@ Phase 15  [----------]   0%  OS-Level Runtime (Ultimate)        NOT STARTED
 
 ## Phase 9 — Remote Runner
 
-**Status:** NOT STARTED
+**Status:** COMPLETE
 
-| Task | Status |
-|---|---|
-| `RemoteConfig` + `~/.zenith/remotes.toml` | TODO |
-| `zenith remote add/list/remove/status` | TODO |
-| `--remote` flag on `zenith run` | TODO |
-| SSH transport (`openssh` crate) | TODO |
-| Project upload + live log streaming | TODO |
-| `zenith-agent` binary target | TODO |
-| Agent auto-bootstrap on remote | TODO |
+| Task | Status | File |
+|---|---|---|
+| `RemoteEntry` struct + `~/.zenith/remotes.toml` | DONE | `src/remote/config.rs` |
+| `add/list/remove/get_remote()` | DONE | `src/remote/config.rs` |
+| `zenith remote add/list/remove/status` | DONE | `src/cli.rs`, `src/main.rs` |
+| `--remote <name>` flag on `zenith run` | DONE | `src/main.rs` — wired to `runner::execute_remote` |
+| SSH transport via system `ssh` binary | DONE | `src/remote/transport.rs` |
+| `ping()` — check reachability + arch | DONE | `src/remote/transport.rs` |
+| `package_project()` — tar.gz excluding noise dirs | DONE | `src/remote/transport.rs` |
+| `upload_project()` — pipe tarball via SSH | DONE | `src/remote/transport.rs` |
+| `bootstrap_agent()` — auto-install agent on remote | DONE | `src/remote/transport.rs` |
+| `run_agent()` — stream logs back with `[remote:name]` prefix | DONE | `src/remote/transport.rs` |
+| `zenith-agent` binary target | DONE | `src/agent/main.rs`, `Cargo.toml` [[bin]] |
+| Shared library target (`src/lib.rs`) for dual-binary crate | DONE | `src/lib.rs` |
+| `default-run = "zenith"` in Cargo.toml | DONE | `Cargo.toml` |
 
 ---
 
 ## Phase 10 — Cloud Runtime
 
-**Status:** NOT STARTED
+**Status:** COMPLETE
 
-| Task | Status |
-|---|---|
-| Cloud API client (`src/cloud/`) | TODO |
-| `zenith cloud login/run/status/logs/cancel` | TODO |
-| SSE log streaming + auto-reconnect | TODO |
-| Project tar.gz packager for upload | TODO |
+| Task | Status | File |
+|---|---|---|
+| `RunStatus`, `RunInfo`, `CloudConfig` types | DONE | `src/cloud/types.rs` |
+| `CloudClient` — full HTTP API surface | DONE | `src/cloud/client.rs` |
+| `submit_run()` — multipart project upload | DONE | `src/cloud/client.rs` |
+| `get_status()` / `list_runs()` / `cancel_run()` | DONE | `src/cloud/client.rs` |
+| `stream_logs()` — SSE parsing + live print | DONE | `src/cloud/client.rs` |
+| `load_cloud_config()` / `save_api_key()` / `clear_api_key()` | DONE | `src/cloud/client.rs` |
+| `package_project()` — tar.gz builder | DONE | `src/cloud/packager.rs` |
+| `zenith cloud login/logout/run/status/logs/cancel/list` | DONE | `src/cli.rs`, `src/main.rs` |
+| `futures-util` + `reqwest multipart` deps | DONE | `Cargo.toml` |
 
 ---
 
@@ -264,27 +275,19 @@ Phase 15  [----------]   0%  OS-Level Runtime (Ultimate)        NOT STARTED
 
 ---
 
-## What to Build Next (Phase 9 — Remote Runner)
+## What to Build Next (Phase 11 — GUI & IDE Integration)
 
 Priority order for the next coding session:
 
-1. **`RemoteConfig` + `~/.zenith/remotes.toml`** (`src/config.rs`)
-   - `[[remotes]]` entries: name, host, user, key_path
-   - `zenith remote add <name> <host>` writes the entry
+1. **Axum HTTP dashboard** (`src/dashboard/`)
+   - `zenith dashboard` starts a local HTTP server on port 7620
+   - Live job status, log streaming via SSE, cache stats
 
-2. **SSH transport** (`src/remote/ssh.rs`)
-   - Connect via `openssh` crate, run commands, stream stdout back
-   - Upload project as tar.gz, extract on remote
+2. **TUI (terminal UI)** using `ratatui`
+   - `zenith tui` — interactive job picker, live log panel, cache browser
 
-3. **`zenith-agent` binary target** (`src/bin/agent.rs`)
-   - Listens for workflow tasks over stdin (JSON)
-   - Runs `execute_local()` on the remote machine
-   - Streams logs back line by line
-
-4. **`--remote <name>` flag on `zenith run`** (`src/main.rs`)
-   - Already has the placeholder — wire it to the SSH transport
-
-5. **`zenith remote add/list/remove/status`** (`src/cli.rs`, `src/main.rs`)
+3. **VSCode extension scaffolding** (`editors/vscode/`)
+   - Extension that reads `.zenith.yml` and adds run buttons per job
 
 ---
 

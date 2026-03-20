@@ -6,6 +6,16 @@ description = "Local Multi-OS Workflow Runtime"
 authors = ["Zenith Developer"]
 license = "MIT OR Apache-2.0"
 
+default-run = "zenith"
+
+[[bin]]
+name = "zenith"
+path = "src/main.rs"
+
+[[bin]]
+name = "zenith-agent"
+path = "src/agent/main.rs"
+
 [dependencies]
 clap      = { version = "4.4", features = ["derive"] }
 serde     = { version = "1.0", features = ["derive"] }
@@ -15,8 +25,8 @@ tracing   = "0.1"
 tracing-subscriber = "0.3"
 tokio     = { version = "1.32", features = ["full", "process"] }
 
-# HTTP client for downloading rootfs images and tool binaries — no external tools needed
-reqwest   = { version = "0.11", features = ["stream", "blocking"] }
+# HTTP client for downloads, cloud API, and multipart uploads
+reqwest   = { version = "0.11", features = ["stream", "blocking", "multipart", "json"] }
 
 # Response body bytes
 bytes = "1.5"
@@ -47,8 +57,12 @@ glob = "0.3"
 # JSON for cache metadata and plugin protocol
 serde_json = "1.0"
 
-# TOML for plugin.toml manifest parsing (Phase 8)
+# TOML for plugin.toml manifest parsing (Phase 8) and remotes.toml (Phase 9)
 toml = "0.8"
+
+# SSE streaming for cloud log tailing (Phase 10)
+futures-util = "0.3"
+
 
 # For Linux: raw syscall bindings (namespaces, chroot, mount, unshare)
 # Only compiled on Linux — zero cost on other platforms
