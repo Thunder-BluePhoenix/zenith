@@ -7,6 +7,7 @@ mod cli;
 mod config;
 mod runner;
 mod sandbox;
+mod tools;
 
 #[tokio::main]
 async fn main() -> Result<()> {
