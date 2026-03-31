@@ -57,5 +57,7 @@
 
 ---
 
+[User Guide](user-guide.md)
+[Use Cases](use-cases.md)
 [FAQ](faq.md)
 [Changelog](changelog.md)

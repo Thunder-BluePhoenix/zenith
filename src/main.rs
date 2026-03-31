@@ -815,8 +815,6 @@ async fn handle_daemon(cmd: cli::DaemonCommands) -> Result<()> {
 // ─── Benchmark command handler (Phase 14) ────────────────────────────────────
 
 fn handle_benchmark(save_baseline: bool) -> Result<()> {
-    use std::path::PathBuf;
-
     let home = sandbox::zenith_home();
     let baseline_path = home.join("bench-baseline.json");
 

@@ -17,11 +17,11 @@
 /// from one job never bleeds into another.
 
 use super::backend::Backend;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use async_trait::async_trait;
-use tracing::{info, warn};
+use tracing::info;
 
 pub struct WineBackend;
 
@@ -85,6 +85,10 @@ impl Backend for WineBackend {
         env: Option<HashMap<String, String>>,
         working_directory: Option<String>,
     ) -> Result<()> {
+        // lab_id / env / working_directory are used in the Linux-only cfg block.
+        #[allow(unused_variables)]
+        let (lab_id, env, working_directory) = (lab_id, env, working_directory);
+
         info!("[Wine] Executing: {}", cmd);
 
         #[cfg(target_os = "linux")]
@@ -151,6 +155,7 @@ impl Backend for WineBackend {
 
 /// Split `cmd` into (exe_path, extra_args).
 /// Handles: `app.exe`, `app.exe --flag`, `C:\path\app.exe`, relative `bin/app.exe`
+#[allow(dead_code)]
 fn parse_exe_cmd(cmd: &str, workspace: &std::path::Path) -> (PathBuf, Vec<String>) {
     let parts: Vec<&str> = cmd.splitn(2, ' ').collect();
     let exe_part = parts[0];

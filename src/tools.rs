@@ -339,6 +339,7 @@ async fn download_zip_binary(name: &str, url: &str, dest: &Path) -> Result<()> {
 
 /// Download a .tar.xz and extract the entire archive into `dest_parent/`.
 /// Used for Wine which ships as a multi-file directory tarball.
+#[allow(dead_code)]
 async fn download_tar_xz_dir(name: &str, url: &str, dest_parent: &Path) -> Result<()> {
     let bytes = fetch_bytes(url).await?;
     let tmp = dest_parent.join(format!("_tmp_{}.tar.xz", name));

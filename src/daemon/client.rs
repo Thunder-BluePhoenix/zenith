@@ -38,8 +38,7 @@ pub async fn try_run_via_daemon(
     conn.send(&req).await?;
 
     // Stream responses until RunComplete or Error
-    let mut success = false;
-    loop {
+    let success = loop {
         let resp = conn.recv().await?;
         match resp {
             DaemonResponse::RunAccepted { run_id } => {
@@ -60,16 +59,13 @@ pub async fn try_run_via_daemon(
                     println!("[daemon] ✗ {} (failed)", step_name);
                 }
             }
-            DaemonResponse::RunComplete { success: s, .. } => {
-                success = s;
-                break;
-            }
+            DaemonResponse::RunComplete { success: s, .. } => break s,
             DaemonResponse::Error { message } => {
                 return Err(anyhow::anyhow!("Daemon error: {}", message));
             }
             _ => {}
         }
-    }
+    };
 
     Ok(success)
 }

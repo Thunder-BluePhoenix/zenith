@@ -104,7 +104,7 @@ fn run_command(cmd: &str, out: &mut dyn Write) -> i32 {
         return 1;
     }
 
-    let mut child = match Command::new("sh")
+    let child = match Command::new("sh")
         .args(["-c", cmd])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

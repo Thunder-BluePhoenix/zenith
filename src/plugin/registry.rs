@@ -101,6 +101,7 @@ pub fn remove_plugin(name: &str) -> Result<()> {
 
 /// Registry entry returned from the hosted plugin index.
 #[derive(Debug, serde::Deserialize)]
+#[allow(dead_code)]
 struct RegistryEntry {
     name:        String,
     version:     String,

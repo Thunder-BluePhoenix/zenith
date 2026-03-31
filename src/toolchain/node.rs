@@ -69,7 +69,7 @@ fn node_download_url(version: &str) -> String {
     }
 }
 
-async fn download_and_extract_node(url: &str, install_dir: &std::path::Path, version: &str) -> Result<()> {
+async fn download_and_extract_node(url: &str, install_dir: &std::path::Path, _version: &str) -> Result<()> {
     let bytes = crate::tools::fetch_url(url).await?;
 
     if url.ends_with(".zip") {

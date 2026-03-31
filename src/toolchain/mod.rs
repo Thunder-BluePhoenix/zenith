@@ -14,10 +14,10 @@
 /// and prepends their bin/ directories to PATH before every workflow step.
 /// No nvm, pyenv, rbenv, or system packages required.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use tracing::{info, warn, debug};
+use tracing::{info, warn};
 use crate::config::{EnvConfig, Job};
 
 pub mod node;

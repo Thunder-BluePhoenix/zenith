@@ -299,7 +299,7 @@ pub fn run_in_sandbox_with_workspace(
     workspace: &Path,
     _os: &str,
     target_arch: &str,
-    qemu_binary: Option<&Path>,
+    _qemu_binary: Option<&Path>,
     cmd: &str,
     env: Option<HashMap<String, String>>,
     working_directory: Option<String>
@@ -312,12 +312,12 @@ pub fn run_in_sandbox_with_workspace(
 
     #[cfg(target_os = "linux")]
     {
-        if is_emulated && qemu_binary.is_some() {
+        if is_emulated && _qemu_binary.is_some() {
             info!("Cross-arch: host={} target={} — using QEMU user-mode emulation.", host_arch, target_arch);
         } else if is_emulated {
             warn!("Cross-arch target={} but no QEMU binary available. Running natively (may fail).", target_arch);
         }
-        linux::run_namespaced(workspace, qemu_binary, cmd, env, working_directory)
+        linux::run_namespaced(workspace, _qemu_binary, cmd, env, working_directory)
     }
 
     #[cfg(not(target_os = "linux"))]
@@ -367,9 +367,10 @@ fn run_clean_subprocess_with_workspace(
 }
 
 #[cfg(not(target_os = "linux"))]
+#[allow(dead_code)]
 fn run_clean_subprocess(
-    rootfs: &Path, 
-    cmd: &str, 
+    rootfs: &Path,
+    cmd: &str,
     env: Option<HashMap<String, String>>,
     working_directory: Option<String>
 ) -> Result<()> {
@@ -432,7 +433,7 @@ pub async fn exec_in_lab(
     working_directory: Option<String>
 ) -> Result<()> {
     let rootfs = rootfs_dir(base_os);
-    let lab_workspace = lab_state_dir(lab_id).join("workspace");
+    let _lab_workspace = lab_state_dir(lab_id).join("workspace");
 
     // Phase 5 (Motto): If cross-arch is needed, Zenith auto-downloads
     // qemu-user-static — the user installs nothing.

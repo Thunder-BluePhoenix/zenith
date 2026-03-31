@@ -21,7 +21,7 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 

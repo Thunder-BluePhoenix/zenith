@@ -15,7 +15,7 @@ use anyhow::{Context, Result};
 use reqwest::Client;
 use tracing::info;
 
-use super::types::{CloudConfig, RunInfo, RunStatus};
+use super::types::{CloudConfig, RunInfo};
 
 pub struct CloudClient {
     pub config: CloudConfig,

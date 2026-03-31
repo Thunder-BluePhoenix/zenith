@@ -17,13 +17,10 @@
 /// Windows/macOS: use 'backend: container' or 'backend: wasm'.
 
 use super::backend::Backend;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Write};
-use std::path::{Path, PathBuf};
-use std::time::Duration;
 use async_trait::async_trait;
-use tracing::{info, warn, error, debug};
+use tracing::info;
 
 // ─── Warm-pool ────────────────────────────────────────────────────────────────
 
@@ -87,6 +84,12 @@ impl Backend for FirecrackerBackend {
         env: Option<HashMap<String, String>>,
         working_directory: Option<String>,
     ) -> Result<()> {
+        // Parameters are used inside the Linux-only cfg block; suppress the
+        // "unused variable" warnings that appear on non-Linux targets.
+        #[allow(unused_variables)]
+        let (lab_id, base_os, cmd, env, working_directory) =
+            (lab_id, base_os, cmd, env, working_directory);
+
         #[cfg(target_os = "linux")]
         {
             info!("[FC] Booting MicroVM for lab '{}', running: {}", lab_id, cmd);
@@ -541,7 +544,7 @@ fn check_kvm() -> Result<()> {
 
 // ─── Command helpers ──────────────────────────────────────────────────────────
 
-/// Build `KEY=VALUE KEY2=VALUE2 ` prefix for the shell command inside the VM.
+#[allow(dead_code)]
 fn build_env_prefix(env: &Option<HashMap<String, String>>) -> String {
     match env {
         None => String::new(),
@@ -557,7 +560,7 @@ fn build_env_prefix(env: &Option<HashMap<String, String>>) -> String {
     }
 }
 
-/// Minimal shell escaping: wrap in single quotes, escape embedded single quotes.
+#[allow(dead_code)]
 fn shell_escape(s: &str) -> String {
     format!("'{}'", s.replace('\'', r"'\''"))
 }
